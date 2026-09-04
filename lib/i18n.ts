@@ -54,9 +54,13 @@ const zh = {
     title: '{name} 的版本谱系',
     description: '同一配方可保留独立用量与手法；从原始配方或任意版本继续改编。',
   },
-  stockDialog: {
-    title: '我的酒柜',
-    description: '选择当前拥有的原料；“可以制作”会立即按此更新。',
+  stockPage: {
+    title: '管理酒柜',
+    subtitle: '选择你拥有的原料，返回后“可以制作”会立即更新。',
+    searchPlaceholder: '搜索原料…',
+    back: '返回',
+    selectedCount: '已选 {count} / {total}',
+    empty: '没有匹配的原料。',
   },
   formDialog: {
     title: '新增个人配方',
@@ -135,9 +139,13 @@ const en: typeof zh = {
     title: 'The {name} family',
     description: 'Keep independent measures and technique per recipe; branch from the original or any version.',
   },
-  stockDialog: {
-    title: 'My Stock',
-    description: 'Select the ingredients you have; “makeable” updates instantly.',
+  stockPage: {
+    title: 'Manage Stock',
+    subtitle: 'Select the ingredients you have; “makeable” updates as soon as you return.',
+    searchPlaceholder: 'Search ingredients…',
+    back: 'Back',
+    selectedCount: '{count} of {total} selected',
+    empty: 'No matching ingredients.',
   },
   formDialog: {
     title: 'Add recipe',
@@ -166,6 +174,39 @@ const en: typeof zh = {
 
 export const ui: Record<Lang, typeof zh> = { zh, en };
 
+// 固定并排双语标签：始终同时显示中英文，不随切换开关变化。
+export const labels = {
+  brandSubtitle: 'COCKTAIL ENCYCLOPEDIA',
+  random: '随机 Random',
+  add: '新增 Add',
+  stockTitle: '我的酒柜 · Stock',
+  stockCount: '已入库 ingredients',
+  manage: '管理酒柜 Manage',
+  availabilityTitle: '制作条件 · Availability',
+  availabilityAll: '全部 All',
+  ingredientsTitle: '按原料过滤 · Ingredients',
+  clearFilters: '清除筛选 Clear',
+  featuredLabel: '配方档案 · Recipe file',
+  exploreLabel: '探索 · Explore',
+  sortLabel: '排序 Sort',
+  familyLabel: '配方家族 · Version family',
+  formTitle: '新增个人配方 · Add recipe',
+  formName: '名称 Name',
+  formRelation: '配方关系 Version',
+  formOriginal: '原创 Original',
+  formMethod: '调制手法 Method',
+  formGlass: '杯型 Glass',
+  formIngredients: '原料 Ingredients',
+  formImage: '图片 URL（可选）',
+  formInstructions: '调制步骤 Instructions',
+  formCancel: '取消 Cancel',
+  formSave: '保存配方 Save',
+  stockPageTitle: '管理酒柜 · Manage Stock',
+  recipe: '配方 Recipe',
+  method: '制作方法 Method',
+  viewDetail: '查看详情 View recipe',
+};
+
 export type TermMap = Record<string, { zh: string; en: string }>;
 
 export const methodNames: TermMap = {
@@ -185,24 +226,72 @@ export const glassNames: TermMap = {
 };
 
 export const ingredientNames: TermMap = {
+  // 基酒 Base Spirits
   Gin: { zh: '金酒', en: 'Gin' },
-  Campari: { zh: '金巴利', en: 'Campari' },
-  'Sweet Vermouth': { zh: '甜味美思', en: 'Sweet Vermouth' },
-  'Dry Vermouth': { zh: '干味美思', en: 'Dry Vermouth' },
-  'Bourbon Whiskey': { zh: '波本威士忌', en: 'Bourbon Whiskey' },
-  Suze: { zh: '苏兹', en: 'Suze' },
-  'Lillet Blanc': { zh: '利莱白', en: 'Lillet Blanc' },
-  'Tequila Blanco': { zh: '白龙舌兰', en: 'Tequila Blanco' },
-  'Triple Sec': { zh: '橙皮利口酒', en: 'Triple Sec' },
-  'Lime juice': { zh: '青柠汁', en: 'Lime juice' },
-  'Agave Syrup': { zh: '龙舌兰糖浆', en: 'Agave Syrup' },
-  'Orange bitters': { zh: '橙味苦精', en: 'Orange bitters' },
+  Vodka: { zh: '伏特加', en: 'Vodka' },
   'Light Rum': { zh: '白朗姆酒', en: 'Light Rum' },
-  'Simple Syrup': { zh: '糖浆', en: 'Simple Syrup' },
-  'Lemon juice': { zh: '柠檬汁', en: 'Lemon juice' },
+  'Aged Rum': { zh: '陈年朗姆酒', en: 'Aged Rum' },
+  Cachaça: { zh: '卡沙萨', en: 'Cachaça' },
+  'Tequila Blanco': { zh: '白龙舌兰', en: 'Tequila Blanco' },
+  'Reposado Tequila': { zh: '陈年龙舌兰', en: 'Reposado Tequila' },
+  Mezcal: { zh: '梅斯卡尔', en: 'Mezcal' },
+  'Bourbon Whiskey': { zh: '波本威士忌', en: 'Bourbon Whiskey' },
+  'Rye Whiskey': { zh: '黑麦威士忌', en: 'Rye Whiskey' },
+  'Scotch Whisky': { zh: '苏格兰威士忌', en: 'Scotch Whisky' },
+  'Irish Whiskey': { zh: '爱尔兰威士忌', en: 'Irish Whiskey' },
+  Cognac: { zh: '干邑', en: 'Cognac' },
+  Brandy: { zh: '白兰地', en: 'Brandy' },
+  Pisco: { zh: '皮斯科', en: 'Pisco' },
+  // 利口酒 Liqueurs
+  Campari: { zh: '金巴利', en: 'Campari' },
+  Aperol: { zh: '阿佩罗', en: 'Aperol' },
+  Cynar: { zh: '奇纳尔', en: 'Cynar' },
+  Suze: { zh: '苏兹', en: 'Suze' },
+  'Triple Sec': { zh: '橙皮利口酒', en: 'Triple Sec' },
   Maraschino: { zh: '黑樱桃利口酒', en: 'Maraschino' },
   'Crème de Violette': { zh: '紫罗兰利口酒', en: 'Crème de Violette' },
+  Amaretto: { zh: '杏仁利口酒', en: 'Amaretto' },
+  'Coffee Liqueur': { zh: '咖啡利口酒', en: 'Coffee Liqueur' },
+  'Elderflower Liqueur': { zh: '接骨木花利口酒', en: 'Elderflower Liqueur' },
+  'Green Chartreuse': { zh: '绿荨麻酒', en: 'Green Chartreuse' },
+  'Yellow Chartreuse': { zh: '黄荨麻酒', en: 'Yellow Chartreuse' },
+  'Fernet-Branca': { zh: '菲奈特', en: 'Fernet-Branca' },
+  // 味美思与加强酒 Vermouth & Fortified
+  'Sweet Vermouth': { zh: '甜味美思', en: 'Sweet Vermouth' },
+  'Dry Vermouth': { zh: '干味美思', en: 'Dry Vermouth' },
+  'Lillet Blanc': { zh: '利莱白', en: 'Lillet Blanc' },
+  Sherry: { zh: '雪莉酒', en: 'Sherry' },
+  Port: { zh: '波特酒', en: 'Port' },
+  // 苦精 Bitters
   'Angostura bitters': { zh: '安哥斯图娜苦精', en: 'Angostura bitters' },
+  'Orange bitters': { zh: '橙味苦精', en: 'Orange bitters' },
+  "Peychaud's Bitters": { zh: '裴修苦精', en: "Peychaud's Bitters" },
+  // 糖浆 Syrups
+  'Simple Syrup': { zh: '糖浆', en: 'Simple Syrup' },
+  'Agave Syrup': { zh: '龙舌兰糖浆', en: 'Agave Syrup' },
+  'Honey Syrup': { zh: '蜂蜜糖浆', en: 'Honey Syrup' },
+  'Demerara Syrup': { zh: '红糖浆', en: 'Demerara Syrup' },
+  'Maple Syrup': { zh: '枫糖浆', en: 'Maple Syrup' },
+  Orgeat: { zh: '杏仁糖浆', en: 'Orgeat' },
+  // 果汁 Juices
+  'Lime juice': { zh: '青柠汁', en: 'Lime juice' },
+  'Lemon juice': { zh: '柠檬汁', en: 'Lemon juice' },
+  'Orange juice': { zh: '橙汁', en: 'Orange juice' },
+  'Grapefruit juice': { zh: '西柚汁', en: 'Grapefruit juice' },
+  'Pineapple juice': { zh: '菠萝汁', en: 'Pineapple juice' },
+  'Cranberry juice': { zh: '蔓越莓汁', en: 'Cranberry juice' },
+  // 气泡与混合剂 Soda & Mixers
+  'Soda Water': { zh: '苏打水', en: 'Soda Water' },
+  'Tonic Water': { zh: '汤力水', en: 'Tonic Water' },
+  'Ginger Beer': { zh: '姜汁啤酒', en: 'Ginger Beer' },
+  'Egg White': { zh: '蛋清', en: 'Egg White' },
+  Cream: { zh: '奶油', en: 'Cream' },
+  // 装饰 Garnish
+  'Orange Peel': { zh: '橙皮', en: 'Orange Peel' },
+  'Lemon Peel': { zh: '柠檬皮', en: 'Lemon Peel' },
+  Mint: { zh: '薄荷', en: 'Mint' },
+  Cherry: { zh: '樱桃', en: 'Cherry' },
+  Olive: { zh: '橄榄', en: 'Olive' },
 };
 
 export const tagNames: TermMap = {
@@ -215,6 +304,18 @@ export const tagNames: TermMap = {
   Classic: { zh: '经典', en: 'Classic' },
   'Old Fashioned': { zh: '古典派', en: 'Old Fashioned' },
   'My recipe': { zh: '我的配方', en: 'My recipe' },
+};
+
+export const categoryNames: TermMap = {
+  spirit: { zh: '基酒', en: 'Base Spirits' },
+  liqueur: { zh: '利口酒', en: 'Liqueurs' },
+  fortified: { zh: '味美思与加强酒', en: 'Vermouth & Fortified' },
+  bitters: { zh: '苦精', en: 'Bitters' },
+  syrup: { zh: '糖浆', en: 'Syrups' },
+  juice: { zh: '果汁', en: 'Juices' },
+  mixer: { zh: '气泡与混合剂', en: 'Soda & Mixers' },
+  garnish: { zh: '装饰', en: 'Garnish' },
+  other: { zh: '其他', en: 'Other' },
 };
 
 export const instructions: TermMap = {
