@@ -1,3 +1,5 @@
+import { extendedIngredientNames } from './ingredient-names-extended';
+
 export type Lang = 'zh' | 'en';
 
 export const langStorageKey = 'blendingpidia-lang-v1';
@@ -28,9 +30,11 @@ const zh = {
   featured: {
     label: '配方档案',
     makeable: '✓ 现在可以制作',
+    broken: '配方缺损',
     missing: '缺少 {list}',
     variants: '{count} 个改编版本',
     myRecipe: '我的配方',
+    viewDetail: '查看详情',
   },
   explore: {
     label: '探索',
@@ -42,17 +46,28 @@ const zh = {
     sortName: '名称',
     sortNewest: '我的新增',
     cardReady: '✓ 原料齐全',
+    cardBroken: '配方缺损',
     cardMissing: '缺少 {count} 种',
     cardFavoriteAria: '收藏 {name}',
     cardVersions: '{count} 个版本',
     cardMyRecipe: '我的配方',
     cardView: '查看档案',
     empty: '没有找到符合条件的配方。试试移除一个筛选条件。',
+    showing: '已显示 {shown} / {total} 个配方',
+    loadMore: '加载更多',
   },
   family: {
     label: '配方家族',
     title: '{name} 的版本谱系',
     description: '同一配方可保留独立用量与手法；从原始配方或任意版本继续改编。',
+  },
+  recipe: {
+    ingredients: '配方',
+    method: '制作方法',
+    deletedIngredient: '原料已删除',
+    loading: '正在读取完整配方…',
+    loadError: '完整配方读取失败。',
+    retry: '重试',
   },
   stockPage: {
     title: '管理酒柜',
@@ -61,6 +76,39 @@ const zh = {
     back: '返回',
     selectedCount: '已选 {count} / {total}',
     empty: '没有匹配的原料。',
+    addIngredient: '添加原料',
+    editIngredient: '编辑原料',
+    archiveIngredient: '归档',
+    deleteIngredient: '删除',
+    restoreIngredient: '恢复',
+    deleteConfirmationTitle: '删除原料？',
+    deleteConfirmation: '删除“{name}”后，它会从酒柜目录移除。有 {count} 个配方会保留该原料并标记为缺损，且不能制作。',
+    deleteNoRestore: '删除后无法从目录恢复。',
+    confirmDelete: '确认删除',
+    activeTab: '库存目录',
+    archivedTab: '已归档',
+    archivedEmpty: '没有已归档的原料。',
+    nameEn: '英文名',
+    nameZh: '中文名',
+    category: '分类',
+    saveIngredient: '保存',
+    cancel: '取消',
+    inStock: '有库存',
+    outOfStock: '无库存',
+    duplicateIngredient: '已有相同或别名原料，请检查后重试。',
+    ingredientRequired: '请填写中英文名称并选择分类。',
+    duplicateIngredientNamed: '与“{name}”重复或别名冲突，请检查后重试。',
+    deletedIngredientNameReserved: '“{name}”已删除。为保留原配方的缺损关联，暂不能用同名重新添加。',
+    migrationTitle: '部分旧库存数据尚未匹配',
+    migrationDescription: '这些值已保留，暂未计入库存。添加或编辑对应原料后，系统会再次尝试匹配。',
+    migrationBackup: '旧库存列表已保留为恢复副本。',
+    migrationReason: {
+      unknown: '目录中没有匹配项',
+      ambiguous: '匹配到多个原料',
+      untracked: '该类别不参与库存跟踪',
+      archived: '该原料已归档',
+      deleted: '该原料已删除',
+    },
   },
   formDialog: {
     title: '新增个人配方',
@@ -79,7 +127,9 @@ const zh = {
     save: '保存配方',
   },
   notice: {
-    readError: '本地数据无法读取，已使用默认酒柜。',
+    readError: '本地数据无法读取；原数据已保留，当前修改不会覆盖它。',
+    migrationSummary: '有 {count} 项旧库存数据尚未匹配，已保留。请到酒柜查看。',
+    storageBlocked: '本地数据无法安全读写，原数据未被覆盖，修改操作已停用。',
     tryTonight: '今晚试试 {name}。',
     formRequired: '请填写配方名称和至少一种原料。',
     addedVariant: '{name} 已作为改编版本保存。',
@@ -113,9 +163,11 @@ const en: typeof zh = {
   featured: {
     label: 'Recipe file',
     makeable: '✓ Makeable now',
+    broken: 'Broken recipe',
     missing: 'Missing {list}',
     variants: '{count} variations',
     myRecipe: 'My recipe',
+    viewDetail: 'View recipe',
   },
   explore: {
     label: 'Explore',
@@ -127,17 +179,28 @@ const en: typeof zh = {
     sortName: 'Name',
     sortNewest: 'My additions',
     cardReady: '✓ All ingredients',
+    cardBroken: 'Broken recipe',
     cardMissing: 'Missing {count}',
     cardFavoriteAria: 'Favorite {name}',
     cardVersions: '{count} versions',
     cardMyRecipe: 'My recipe',
     cardView: 'View file',
     empty: 'No recipes match your filters. Try removing a filter.',
+    showing: 'Showing {shown} of {total} recipes',
+    loadMore: 'Load more',
   },
   family: {
     label: 'Version family',
     title: 'The {name} family',
     description: 'Keep independent measures and technique per recipe; branch from the original or any version.',
+  },
+  recipe: {
+    ingredients: 'Recipe',
+    method: 'Method',
+    deletedIngredient: 'Ingredient deleted',
+    loading: 'Loading the full recipe…',
+    loadError: 'Could not load the full recipe.',
+    retry: 'Retry',
   },
   stockPage: {
     title: 'Manage Stock',
@@ -146,6 +209,39 @@ const en: typeof zh = {
     back: 'Back',
     selectedCount: '{count} of {total} selected',
     empty: 'No matching ingredients.',
+    addIngredient: 'Add ingredient',
+    editIngredient: 'Edit ingredient',
+    archiveIngredient: 'Archive',
+    deleteIngredient: 'Delete',
+    restoreIngredient: 'Restore',
+    deleteConfirmationTitle: 'Delete ingredient?',
+    deleteConfirmation: '“{name}” will be removed from your stock directory. {count} recipes will retain the ingredient and be marked broken, so they cannot be made.',
+    deleteNoRestore: 'This ingredient cannot be restored from the directory after deletion.',
+    confirmDelete: 'Delete permanently',
+    activeTab: 'Stock list',
+    archivedTab: 'Archived',
+    archivedEmpty: 'No archived ingredients.',
+    nameEn: 'English name',
+    nameZh: 'Chinese name',
+    category: 'Category',
+    saveIngredient: 'Save',
+    cancel: 'Cancel',
+    inStock: 'In stock',
+    outOfStock: 'Out of stock',
+    duplicateIngredient: 'An ingredient with the same name or alias already exists.',
+    ingredientRequired: 'Enter both names and choose a category.',
+    duplicateIngredientNamed: 'This conflicts with “{name}” or one of its aliases.',
+    deletedIngredientNameReserved: '“{name}” was deleted. Its name is reserved to preserve broken recipe references.',
+    migrationTitle: 'Some saved stock values could not be matched',
+    migrationDescription: 'These values are preserved but are not counted as stock. The app will retry when a matching ingredient is added or edited.',
+    migrationBackup: 'A recovery copy of the old stock list has been saved.',
+    migrationReason: {
+      unknown: 'No matching ingredient in the directory',
+      ambiguous: 'Matches more than one ingredient',
+      untracked: 'This category is not tracked in stock',
+      archived: 'This ingredient is archived',
+      deleted: 'This ingredient was deleted',
+    },
   },
   formDialog: {
     title: 'Add recipe',
@@ -164,7 +260,9 @@ const en: typeof zh = {
     save: 'Save',
   },
   notice: {
-    readError: 'Local data could not be read; using the default stock.',
+    readError: 'Local data could not be read; the original data is preserved and current changes will not overwrite it.',
+    migrationSummary: '{count} saved stock values could not be matched and were preserved. Review them in Stock.',
+    storageBlocked: 'Local data could not be read or written safely. The original data has not been overwritten, and editing is paused.',
     tryTonight: 'Try {name} tonight.',
     formRequired: 'Please enter a recipe name and at least one ingredient.',
     addedVariant: '{name} saved as a variation.',
@@ -223,9 +321,21 @@ export const glassNames: TermMap = {
   Cocktail: { zh: '鸡尾酒杯', en: 'Cocktail' },
   Margarita: { zh: '玛格丽特杯', en: 'Margarita' },
   Coupe: { zh: '碟形杯', en: 'Coupe' },
+  Absinthe: { zh: '苦艾酒杯', en: 'Absinthe' },
+  Champagne: { zh: '香槟杯', en: 'Champagne' },
+  'Copper mug': { zh: '铜杯', en: 'Copper mug' },
+  Fizzio: { zh: '菲兹杯', en: 'Fizzio' },
+  'Glass mug': { zh: '玻璃马克杯', en: 'Glass mug' },
+  Highball: { zh: '高球杯', en: 'Highball' },
+  Hurricane: { zh: '飓风杯', en: 'Hurricane' },
+  Julep: { zh: '朱丽普杯', en: 'Julep' },
+  'Nick and Nora': { zh: '尼克与诺拉杯', en: 'Nick and Nora' },
+  Shot: { zh: '烈酒杯', en: 'Shot' },
+  Tiki: { zh: '提基杯', en: 'Tiki' },
+  Wine: { zh: '葡萄酒杯', en: 'Wine' },
 };
 
-export const ingredientNames: TermMap = {
+const baseIngredientNames: TermMap = {
   // 基酒 Base Spirits
   Gin: { zh: '金酒', en: 'Gin' },
   Vodka: { zh: '伏特加', en: 'Vodka' },
@@ -294,15 +404,65 @@ export const ingredientNames: TermMap = {
   Olive: { zh: '橄榄', en: 'Olive' },
 };
 
+export const ingredientNames: TermMap = { ...baseIngredientNames, ...extendedIngredientNames };
+
 export const tagNames: TermMap = {
+  Aperitivo: { zh: '开胃酒', en: 'Aperitivo' },
+  Autumn: { zh: '秋日', en: 'Autumn' },
+  Batch: { zh: '批量调制', en: 'Batch' },
   'IBA Cocktail': { zh: 'IBA 官方配方', en: 'IBA Cocktail' },
   Bitter: { zh: '苦味', en: 'Bitter' },
+  Brandy: { zh: '白兰地', en: 'Brandy' },
+  Bright: { zh: '明亮清新', en: 'Bright' },
+  Briny: { zh: '咸鲜', en: 'Briny' },
+  Citrusy: { zh: '柑橘风味', en: 'Citrusy' },
+  Clarified: { zh: '澄清', en: 'Clarified' },
   Negroni: { zh: '内格罗尼', en: 'Negroni' },
+  Classics: { zh: '经典配方', en: 'Classics' },
+  Coffee: { zh: '咖啡', en: 'Coffee' },
+  Complex: { zh: '复杂风味', en: 'Complex' },
+  'Contemporary Classics': { zh: '当代经典', en: 'Contemporary Classics' },
   Herbaceous: { zh: '草本', en: 'Herbaceous' },
   'Contemporary Classic': { zh: '当代经典', en: 'Contemporary Classic' },
   Dry: { zh: '干型', en: 'Dry' },
+  Dessert: { zh: '甜点风味', en: 'Dessert' },
+  Fizz: { zh: '菲兹', en: 'Fizz' },
+  Flip: { zh: '弗利普', en: 'Flip' },
+  Floral: { zh: '花香', en: 'Floral' },
+  Fruity: { zh: '果香', en: 'Fruity' },
+  Herbacious: { zh: '草本', en: 'Herbacious' },
+  Herbal: { zh: '草本', en: 'Herbal' },
+  highball: { zh: '高球', en: 'highball' },
+  Historical: { zh: '历史经典', en: 'Historical' },
+  Hot: { zh: '热饮', en: 'Hot' },
   Classic: { zh: '经典', en: 'Classic' },
   'Old Fashioned': { zh: '古典派', en: 'Old Fashioned' },
+  Julep: { zh: '朱丽普', en: 'Julep' },
+  Light: { zh: '轻盈', en: 'Light' },
+  Manhattan: { zh: '曼哈顿', en: 'Manhattan' },
+  Margarita: { zh: '玛格丽特', en: 'Margarita' },
+  Minty: { zh: '薄荷风味', en: 'Minty' },
+  Mojito: { zh: '莫吉托', en: 'Mojito' },
+  Mule: { zh: '骡子', en: 'Mule' },
+  'New Era Drinks': { zh: '新时代饮品', en: 'New Era Drinks' },
+  Nutty: { zh: '坚果风味', en: 'Nutty' },
+  Punch: { zh: '潘趣', en: 'Punch' },
+  Refreshing: { zh: '清爽', en: 'Refreshing' },
+  Savory: { zh: '咸香', en: 'Savory' },
+  Smash: { zh: '斯玛什', en: 'Smash' },
+  Smokey: { zh: '烟熏', en: 'Smokey' },
+  Sour: { zh: '酸味', en: 'Sour' },
+  Spicy: { zh: '辛香', en: 'Spicy' },
+  Spritz: { zh: '斯普利兹', en: 'Spritz' },
+  Summer: { zh: '夏日', en: 'Summer' },
+  Sweet: { zh: '甜味', en: 'Sweet' },
+  Swizzle: { zh: '斯威兹', en: 'Swizzle' },
+  'The Unforgettables': { zh: '永恒经典', en: 'The Unforgettables' },
+  Tiki: { zh: '提基', en: 'Tiki' },
+  Tropical: { zh: '热带风味', en: 'Tropical' },
+  Virgin: { zh: '无酒精', en: 'Virgin' },
+  Wine: { zh: '葡萄酒', en: 'Wine' },
+  Winter: { zh: '冬日', en: 'Winter' },
   'My recipe': { zh: '我的配方', en: 'My recipe' },
 };
 
@@ -313,7 +473,9 @@ export const categoryNames: TermMap = {
   bitters: { zh: '苦精', en: 'Bitters' },
   syrup: { zh: '糖浆', en: 'Syrups' },
   juice: { zh: '果汁', en: 'Juices' },
-  mixer: { zh: '气泡与混合剂', en: 'Soda & Mixers' },
+  mixer: { zh: '软饮', en: 'Soft Drinks' },
+  modifier: { zh: '质地与乳制品', en: 'Texture & Dairy' },
+  fresh: { zh: '鲜果与香草', en: 'Fresh Produce & Herbs' },
   garnish: { zh: '装饰', en: 'Garnish' },
   other: { zh: '其他', en: 'Other' },
 };
@@ -329,6 +491,14 @@ export const instructions: TermMap = {
   'old-fashioned': { zh: '在古典杯中加冰搅拌，表达橙皮精油。', en: 'Build in a rocks glass over ice, stir, and express orange peel oils.' },
 };
 
-export function term(map: TermMap, value: string, lang: Lang): string {
-  return map[value]?.[lang] ?? value;
+export function term(map: TermMap, value: string | null | undefined, lang: Lang): string {
+  if (!value) return '';
+  const exactTranslation = map[value];
+  if (exactTranslation) return exactTranslation[lang];
+
+  const normalizedValue = value.trim().normalize('NFC').toLowerCase();
+  for (const [key, translation] of Object.entries(map)) {
+    if (key.normalize('NFC').toLowerCase() === normalizedValue) return translation[lang];
+  }
+  return value;
 }

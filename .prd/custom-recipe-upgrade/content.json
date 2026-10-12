@@ -1,0 +1,103 @@
+{
+  "feature_id": "custom-recipe-upgrade",
+  "title": "优化自建鸡尾酒配方：编辑删除、结构化配料与首页管理视图",
+  "problem": "当前新增鸡尾酒功能只能一次性新增：自建配方保存后无法编辑或删除；配料为逗号分隔纯文本、不采集用量（Cocktail 类型已含 measures 字段但表单未采集），拼写错误会产生目录外原料并影响库存可制作判断；父配方是 663 项平铺下拉难以定位；没有集中浏览自建配方的入口；同名配方可无限重复创建且无提醒；步骤只能整段录入且展示不保留分行（内置配方数据 491/663 本身含分行步骤文本，当前渲染丢失分行）。",
+  "goals": [
+    "自建配方可修改、可删除，形成完整的管理闭环",
+    "配料结构化录入：目录自动补全加用量，信息完整度对齐内置配方",
+    "首页内集中浏览并管理我的配方，不新增路由",
+    "降低录入错误：重名提醒、配料规范化、父配方可搜索选择",
+    "步骤按行录入与展示，与内置配方数据格式一致"
+  ],
+  "scope": {
+    "in": [
+      "编辑自建配方：复用现有表单，保存更新原条目且 id 不变",
+      "删除自建配方：带确认；被引用为父配方时解除关联并保留子配方",
+      "配料按行录入：名称自动补全（目录内，中英文译名匹配）加可选用量（自由文本）",
+      "允许录入目录外新原料，保留现有规范化与去重逻辑",
+      "首页“我的配方”筛选分区：仅显示自建配方，搜索/排序/库存筛选仍生效，卡片提供编辑/删除入口",
+      "重名软提醒：保存前检测与现有自建配方同名，不阻止保存",
+      "父配方选择器支持按名称搜索过滤，编辑时排除自身",
+      "步骤按行录入、按行渲染展示（同时作用于精选与详情路径）"
+    ],
+    "out": [
+      "分享与导出（JSON 导出/导入、分享卡片）——用户明确暂不做",
+      "独立管理页面或新路由——改为首页内筛选",
+      "编辑或删除内置（目录）配方",
+      "跨设备同步、云端存储、账号体系",
+      "配料单位结构化校验（用量为自由文本）",
+      "性能指标与压测（纯客户端小数据量，用户同意不适用）"
+    ]
+  },
+  "sources": [
+    {"id": "S-01", "type": "code", "locator": "app/page.tsx#addRecipe L349-391", "summary": "自建配方新增主流程：FormData 一次性读取、配料经 findManagedIngredient/canonicalIngredientName 规范化并去重、id 为 slug+Date.now()、标记 isCustom 与 My recipe 标签；文件内无编辑或删除自建配方的函数。", "status": "verified"},
+    {"id": "S-02", "type": "code", "locator": "app/page.tsx L738-836", "summary": "新增表单 Dialog 字段：名称、父配方下拉（filter !parentId，含自建配方）、手法、杯型、配料单个 Input、图片 URL、步骤单个 textarea；提交与取消按钮。", "status": "verified"},
+    {"id": "S-03", "type": "code", "locator": "lib/data.ts L6-19", "summary": "Cocktail 类型含 measures?: string[] 与 ingredients: string[]；新增表单未采集 measures，自建配方无用量。", "status": "verified"},
+    {"id": "S-04", "type": "code", "locator": "app/page.tsx L944-950 及精选渲染 L597-606", "summary": "instructions 以单个 p 标签渲染（无 whitespace-pre-line），换行不保留。", "status": "verified"},
+    {"id": "S-05", "type": "code", "locator": "app/page.tsx L102/L137/L200", "summary": "customRecipes 与 baseCocktails 合并展示；localStorage 键 blendingpidia-v1 读写 effect 已存在，编辑/删除可复用同一持久化路径。", "status": "verified"},
+    {"id": "S-06", "type": "code", "locator": "lib/data.ts#slugify L164-169", "summary": "slugify 追加 Date.now()，自建配方 id 天然唯一，名称重复不会产生 id 冲突。", "status": "verified"},
+    {"id": "S-07", "type": "code", "locator": "lib/ingredient-registry.ts", "summary": "原料目录 registry（262 行）提供 findManagedIngredient 规范化入口，可作为自动补全数据源；lib/i18n.ts 提供中英文译名匹配机制。", "status": "verified"},
+    {"id": "S-08", "type": "code", "locator": "resource/data/cocktails/*/data.json", "summary": "本机 663 份内置配方 data.json，其中 491 份 instructions 为 \\n 分行的编号步骤文本；按行渲染与数据源格式一致。", "status": "verified"},
+    {"id": "S-09", "type": "code", "locator": "tests/performance.test.mjs", "summary": "现有 node:test 加 VM 内转译加载纯 TS 模块的测试方式，无浏览器依赖，可扩展纯逻辑单测。", "status": "verified"},
+    {"id": "S-10", "type": "knowledge", "locator": ".project-knowledge/knowledge.json K-005、K-006（checked_at 2026-10-10）", "summary": "K-006 关于 id 冲突未解决的记录已过期（slugify 已加时间戳，见 S-06）；其余描述与本次回查一致。app/page.tsx、lib/data.ts 证据哈希过期，结论已按当前源码重新核实。", "status": "stale"},
+    {"id": "S-11", "type": "user", "locator": "本会话 2026-10-10 AskUserQuestion 应答", "summary": "用户确认：四个优化方向全部纳入；分享导出暂不做；配料补全+允许新原料；管理入口为首页内筛选；范围/规则/八条故事确认；性能验收不适用。", "status": "verified"}
+  ],
+  "stories": [
+    {"id": "US-1", "role": "居家调酒用户", "want": "修改已保存的自建配方", "benefit": "修正录入错误或迭代改进配方而不必重建", "scenario": "触发：在“我的配方”筛选下打开某自建配方的编辑入口。主流程：表单预填全部现有字段（名称、父配方、手法、杯型、配料与用量、图片、步骤），修改后保存，原条目更新且 id 不变、变体与收藏关系保持，列表与精选立即反映新内容。异常：名称与其他自建配方重复时先出现重名提醒（US-6）。", "source_ids": ["S-01", "S-05", "S-11"]},
+    {"id": "US-2", "role": "居家调酒用户", "want": "删除不需要的自建配方", "benefit": "保持配方列表整洁", "scenario": "触发：在管理入口对自建配方点击删除。主流程：出现确认提示，确认后配方从列表、精选与 localStorage 中移除。异常：该配方被其他自建配方引用为父配方时，确认提示说明关联将解除，子配方本身保留且不再显示“基于”关系。", "source_ids": ["S-01", "S-05", "S-11"]},
+    {"id": "US-3", "role": "居家调酒用户", "want": "为每条配料录入用量", "benefit": "自建配方与内置配方一样可复现", "scenario": "触发：新增或编辑配方的配料区。主流程：每条配料行由名称与可选用量（自由文本如 45 ml、1 dash）组成，保存后详情按配料一一对应显示用量。异常：用量留空时保存成功，展示为空。", "source_ids": ["S-03", "S-11"]},
+    {"id": "US-4", "role": "居家调酒用户", "want": "配料输入时获得目录自动补全", "benefit": "避免拼写错误产生未知原料、破坏库存可制作判断", "scenario": "触发：在配料名称输入框输入。主流程：出现目录原料候选（支持中英文译名匹配），选中后保存规范名；现有规范化与去重逻辑保留。异常：输入目录外原料时允许直接保存，不阻塞。", "source_ids": ["S-07", "S-11"]},
+    {"id": "US-5", "role": "居家调酒用户", "want": "在首页集中浏览和管理我的配方", "benefit": "自建配方数量增多后仍可单独查看和管理", "scenario": "触发：在首页开启“我的配方”筛选。主流程：列表仅显示自建配方，搜索、排序与库存筛选在该模式下仍生效；配方卡片提供编辑与删除入口。异常：尚无自建配方时开启筛选，列表显示现有空态提示，不报错。", "source_ids": ["S-05", "S-11"]},
+    {"id": "US-6", "role": "居家调酒用户", "want": "保存前知道已存在同名自建配方", "benefit": "避免无意中重复创建", "scenario": "触发：新增或编辑时提交表单。主流程：名称与现有自建配方重复时出现明确提醒，属软提醒，用户可选择继续保存（id 含时间戳不会冲突）。", "source_ids": ["S-06", "S-11"]},
+    {"id": "US-7", "role": "居家调酒用户", "want": "按名称搜索并选择父配方", "benefit": "在 663+ 个候选中快速定位基于的鸡尾酒", "scenario": "触发：父配方选择器。主流程：输入名称即过滤候选，保留“原创”空选项，选择后保存 parentId。异常：编辑配方 R 时，R 自身不出现在候选中，避免自引用。", "source_ids": ["S-02", "S-11"]},
+    {"id": "US-8", "role": "居家调酒用户", "want": "按步骤分行录入并在查看时看到分行展示", "benefit": "步骤清晰可读，与内置配方的分步格式一致", "scenario": "触发：步骤输入与配方查看。主流程：步骤按行录入（每行一步），详情与精选按行渲染 instructions；内置配方数据 491/663 本身含 \\n 分行步骤文本，同一渲染路径按行显示。", "source_ids": ["S-04", "S-08", "S-11"]}
+  ],
+  "requirements": [
+    {"id": "FR-1", "statement": "自建配方支持编辑：编辑表单预填现有全部字段，保存后更新原条目且 id 不变，不产生新条目。", "type": "functional", "priority": "Must", "story_ids": ["US-1"], "source_ids": ["S-01", "S-11"], "depends_on": []},
+    {"id": "FR-2", "statement": "自建配方支持删除：删除需确认；确认后从列表、精选与 localStorage 移除；被其他自建配方引用为父配方时，确认提示说明关联将解除，子配方保留。", "type": "functional", "priority": "Must", "story_ids": ["US-2"], "source_ids": ["S-01", "S-05", "S-11"], "depends_on": []},
+    {"id": "FR-3", "statement": "配料按行录入：每行含名称与可选用量（自由文本，如 45 ml、1 dash），保存为 ingredients 与 measures 平行数组且一一对应。", "type": "functional", "priority": "Must", "story_ids": ["US-3"], "source_ids": ["S-03", "S-11"], "depends_on": []},
+    {"id": "FR-4", "statement": "配料名称输入提供目录自动补全（支持中英文译名匹配），选中保存规范名；允许录入目录外新原料；保留现有规范化与去重逻辑。", "type": "functional", "priority": "Must", "story_ids": ["US-4"], "source_ids": ["S-07", "S-11"], "depends_on": ["FR-3"]},
+    {"id": "FR-5", "statement": "首页提供“我的配方”筛选：开启后仅显示自建配方，搜索、排序与库存筛选仍生效；该模式下配方卡片提供编辑与删除入口；无自建配方时复用现有列表空态提示。", "type": "functional", "priority": "Must", "story_ids": ["US-5"], "source_ids": ["S-05", "S-11"], "depends_on": ["FR-1", "FR-2"]},
+    {"id": "FR-6", "statement": "新增/编辑保存前检测名称与现有自建配方重复并软提醒，不阻止保存。", "type": "functional", "priority": "Should", "story_ids": ["US-6"], "source_ids": ["S-06", "S-11"], "depends_on": []},
+    {"id": "FR-7", "statement": "父配方选择器支持按名称搜索过滤候选，保留“原创”空选项；编辑时排除自身。", "type": "functional", "priority": "Should", "story_ids": ["US-7"], "source_ids": ["S-02", "S-11"], "depends_on": ["FR-1"]},
+    {"id": "FR-8", "statement": "步骤按行录入（每行一步）；展示层（精选与详情两条路径）按行渲染 instructions；该渲染同样作用于内置配方，与数据源的分行步骤格式一致。", "type": "functional", "priority": "Should", "story_ids": ["US-8"], "source_ids": ["S-04", "S-08", "S-11"], "depends_on": []},
+    {"id": "CR-1", "statement": "所有新增界面文案在 zh/en 两套 i18n 字典中提供。", "type": "constraint", "priority": "Must", "story_ids": [], "source_ids": ["S-07", "S-11"], "depends_on": []},
+    {"id": "CR-2", "statement": "编辑不改变配方 id，保持收藏与变体引用稳定。", "type": "constraint", "priority": "Must", "story_ids": ["US-1"], "source_ids": ["S-01", "S-11"], "depends_on": []},
+    {"id": "CR-3", "statement": "内置（目录）配方不可编辑、不可删除，编辑/删除入口仅对自建配方可见。", "type": "constraint", "priority": "Must", "story_ids": [], "source_ids": ["S-01", "S-11"], "depends_on": []},
+    {"id": "CR-4", "statement": "旧版本保存的自建配方（无 measures 字段）在新版本下正常加载与展示，用量显示为空、不报错。", "type": "constraint", "priority": "Must", "story_ids": [], "source_ids": ["S-03", "S-05", "S-11"], "depends_on": []}
+  ],
+  "acceptance": [
+    {"id": "AC-1", "requirement_ids": ["FR-1", "CR-2"], "given": "已保存自建配方 R（id 为 X，且被收藏或被另一配方引用为父配方）", "when": "打开 R 的编辑入口，修改名称与某配料用量后保存", "then": "列表中 R 内容更新、无新增条目、R.id 仍为 X，收藏与“基于 R”的变体关系保持；同屏精选立即反映新内容", "verification": "浏览器手动验证前后 localStorage 中该条目 id 与内容；编辑保持 id 的纯逻辑用 node:test 覆盖"},
+    {"id": "AC-2", "requirement_ids": ["FR-2"], "given": "自建配方 R 被自建配方 C 引用为 parentId", "when": "对 R 点击删除并在确认提示中选择确认", "then": "R 从列表、精选与 localStorage 消失；C 仍存在且不再显示“基于 R”的关联；确认提示中出现过关联将解除的说明", "verification": "浏览器手动验证并检查 localStorage；删除解除引用的纯逻辑用 node:test 覆盖"},
+    {"id": "AC-3", "requirement_ids": ["FR-2"], "given": "任一自建配方", "when": "点击删除后在确认提示中选择取消", "then": "配方保持不变，列表与 localStorage 无变化", "verification": "浏览器手动验证"},
+    {"id": "AC-4", "requirement_ids": ["FR-3"], "given": "编辑表单中已有配料 Gin、Lime juice 两行", "when": "分别填入用量 45 ml、20 ml 并保存，打开该配方详情", "then": "两条配料与用量一一对应显示；将某行用量清空后保存仍成功，该行展示为空", "verification": "浏览器手动验证；measures 与 ingredients 对齐的纯逻辑用 node:test 覆盖"},
+    {"id": "AC-5", "requirement_ids": ["FR-4"], "given": "配料名称输入框获得焦点", "when": "输入 gin（或中文译名）", "then": "出现包含 Gin 的目录候选；选中后保存的配料为规范名","verification": "浏览器手动验证；规范化与去重沿用现有逻辑并用 node:test 回归"},
+    {"id": "AC-6", "requirement_ids": ["FR-5"], "given": "已保存若干自建配方与大量内置配方", "when": "开启“我的配方”筛选并输入搜索词", "then": "列表仅显示名称/配料匹配搜索词的自建配方；排序与库存筛选仍生效；卡片显示编辑与删除入口", "verification": "浏览器手动验证"},
+    {"id": "AC-7", "requirement_ids": ["FR-6"], "given": "已存在自建配方“X”", "when": "新建另一配方并命名为 X 提交", "then": "保存前出现与现有自建配方重名的提醒；选择继续后保存成功，列表出现两个 X", "verification": "浏览器手动验证"},
+    {"id": "AC-8", "requirement_ids": ["FR-7"], "given": "父配方选择器展开", "when": "输入 negroni；以及在编辑配方 R 时展开候选", "then": "候选按关键字过滤包含 Negroni 相关配方且保留“原创”空选项；R 自身不出现在候选中", "verification": "浏览器手动验证"},
+    {"id": "AC-9", "requirement_ids": ["FR-8"], "given": "步骤输入区与展示路径（精选、详情）", "when": "录入三行步骤保存后查看；再查看任一 instructions 含换行的内置配方", "then": "自建配方显示三行分行步骤；内置配方同样按行显示，不再压缩为单段", "verification": "浏览器手动验证，抽查含 \\n 的内置配方（如 1934 Cosmo）"},
+    {"id": "AC-10", "requirement_ids": ["CR-1"], "given": "界面语言分别切换为中文与英文", "when": "查看所有新增界面元素（编辑/删除入口、确认提示、重名提醒、筛选开关、配料行、搜索选择器）", "then": "两种语言下均有对应文案，无缺失键或回退到原始键名", "verification": "浏览器手动验证 zh/en 两套显示"},
+    {"id": "AC-11", "requirement_ids": ["CR-4"], "given": "旧版本保存的无 measures 自建配方存在于 localStorage", "when": "新版本加载该数据", "then": "配方正常显示与参与筛选，用量位置为空，无报错", "verification": "构造旧格式数据用 node:test 覆盖加载规范化；浏览器手动抽查"},
+    {"id": "AC-12", "requirement_ids": ["CR-3"], "given": "任一内置配方", "when": "查看其卡片与详情", "then": "不出现编辑与删除入口；仅自建配方显示入口", "verification": "浏览器手动验证"},
+    {"id": "AC-13", "requirement_ids": ["FR-5"], "given": "localStorage 中没有任何自建配方", "when": "开启“我的配方”筛选", "then": "列表显示现有空态提示（与搜索无结果一致的呈现），页面不报错", "verification": "浏览器手动验证"},
+    {"id": "AC-14", "requirement_ids": ["FR-4"], "given": "配料名称输入框", "when": "输入一个目录外名称（如自造原料名）并提交", "then": "配料按原名保存成功，不阻塞、不强制修改", "verification": "浏览器手动验证"}
+  ],
+  "assessments": [
+    {"id": "A-1", "requirement_ids": ["FR-1", "FR-3", "FR-4", "FR-6", "FR-7"], "affected": ["app/page.tsx 表单与 Dialog 结构", "lib/i18n.ts 新增文案", "lib/ingredient-registry.ts 补全数据源"], "difficulty": "medium", "rationale": "现有表单为非受控 FormData 一次性读取（S-01、S-02）；编辑预填、逐行配料（补全加用量）、重名检测与父配方搜索都需要转为受控组件状态管理，是本次最大结构改动。补全数据源与中英文译名匹配可复用 registry 与 i18n 现有机制（S-07），不需要新数据。", "risks": ["表单重构可能对现有新增流程造成回归，需覆盖原新增主流程的回归验证"], "unknowns": [], "source_ids": ["S-01", "S-02", "S-07"]},
+    {"id": "A-2", "requirement_ids": ["FR-2", "FR-5"], "affected": ["app/page.tsx 状态与持久化 effect", "components/cocktail-cards.tsx 卡片入口"], "difficulty": "low", "rationale": "customRecipes 状态与 localStorage 保存 effect 已存在（S-05），删除与编辑均为数组级更新；筛选为现有 filtered 计算链插入模式开关；卡片为条件渲染新增入口。", "risks": [], "unknowns": [], "source_ids": ["S-05"]},
+    {"id": "A-3", "requirement_ids": ["FR-8"], "affected": ["app/page.tsx 精选与详情两条 instructions 展示路径"], "difficulty": "low", "rationale": "渲染从单个 p 标签改为按行拆分（S-04）；内置数据 491/663 本含 \\n 分步文本（S-08），按行渲染与数据格式一致，属低风险展示调整，但需同时覆盖精选与详情两条路径。", "risks": ["仅改一条展示路径导致精选与详情显示不一致"], "unknowns": [], "source_ids": ["S-04", "S-08"]},
+    {"id": "A-4", "requirement_ids": ["FR-1", "FR-2", "FR-3", "FR-4", "FR-5", "FR-6", "FR-7", "FR-8", "CR-1", "CR-2", "CR-3", "CR-4"], "affected": ["tests/（扩展现有 node:test）", "浏览器手动验证"], "difficulty": "low", "rationale": "纯逻辑（规范化、measures 对齐、重名检测、删除解除引用、旧数据兼容）可按 tests/performance.test.mjs 的无浏览器方式覆盖（S-09）；UI 交互流程需浏览器手动验证——项目知识已标注运行时行为未做浏览器验证（S-10），本 PRD 的 verification 均为计划而非已执行。", "risks": ["无自动化 UI 测试，回归依赖手动验证清单的完整性"], "unknowns": [], "source_ids": ["S-09"]}
+  ],
+  "questions": [
+    {"id": "Q-1", "text": "按行渲染 instructions 是否改变内置配方的现有展示效果？", "kind": "assumption", "status": "resolved", "resolution": "已核实本机 663 份内置配方 data.json 中 491 份 instructions 为 \\n 分行步骤文本（S-08），当前单段落渲染本就丢失分行；按行渲染与数据源格式一致并同步改善内置展示，该行为已并入 FR-8 与 AC-9。"}
+  ],
+  "decisions": [
+    {"id": "D-1", "topic": "优化范围", "decision": "编辑与删除、配料结构化录入、我的配方管理视图、录入体验细节四个方向全部纳入本次范围", "quote": "编辑与删除自建配方, 配料结构化录入, 我的配方管理视图, 录入体验细节", "source": "本会话 2026-10-10 AskUserQuestion 应答"},
+    {"id": "D-2", "topic": "分享与导出", "decision": "移出本次范围，暂不实现分享/导出（含 JSON 与分享卡片）", "quote": "忽略我之前的分享需求，暂时不做这个功能", "source": "本会话 2026-10-10 AskUserQuestion 应答"},
+    {"id": "D-3", "topic": "配料录入约束", "decision": "目录自动补全且允许目录外新原料，用量为自由文本", "quote": "补全+允许新原料（推荐）", "source": "本会话 2026-10-10 AskUserQuestion 应答"},
+    {"id": "D-4", "topic": "管理入口位置", "decision": "首页内筛选分区，不新增独立路由", "quote": "首页内筛选", "source": "本会话 2026-10-10 AskUserQuestion 应答"},
+    {"id": "D-5", "topic": "scope", "decision": "确认八条用户故事/验收与业务规则（父配方可选范围含自建、内置配方不可编辑删除、编辑不改 id、双语、旧数据兼容）", "quote": "确认范围与规则", "source": "本会话 2026-10-10 AskUserQuestion 应答"},
+    {"id": "D-6", "topic": "性能验收", "decision": "性能验收按不适用处理：纯客户端 localStorage 小数据量，补全为本地目录匹配", "quote": "同意不适用", "source": "本会话 2026-10-10 AskUserQuestion 应答"}
+  ],
+  "changes": []
+}

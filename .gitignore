@@ -37,5 +37,8 @@ next-env.d.ts
 /outputs/
 /work/
 
+# local cocktail dataset
+/resource/
+
 # typescript build info
 *.tsbuildinfo
