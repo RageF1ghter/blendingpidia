@@ -3,7 +3,7 @@
 /* oxlint-disable nextjs/no-img-element -- Direct asset URLs use native lazy loading, decoding and explicit dimensions. */
 
 import { memo } from 'react';
-import { Heart } from 'lucide-react';
+import { Heart, Pencil, Trash2 } from 'lucide-react';
 import type { Cocktail } from '@/lib/data';
 import type { CocktailAvailability } from '@/lib/cocktail-index';
 import {
@@ -29,6 +29,8 @@ type Props = {
   liked: Set<string>;
   openDetail: (id: string) => void;
   toggleLike: (id: string) => void;
+  onEdit?: (cocktail: Cocktail) => void;
+  onDelete?: (cocktail: Cocktail) => void;
 };
 
 export const CocktailCards = memo(function CocktailCards({
@@ -40,6 +42,8 @@ export const CocktailCards = memo(function CocktailCards({
   liked,
   openDetail,
   toggleLike,
+  onEdit,
+  onDelete,
 }: Props) {
   const t = ui[lang];
   const tr = (map: TermMap, value: string) =>
@@ -106,20 +110,48 @@ export const CocktailCards = memo(function CocktailCards({
                     {tr(glassNames, cocktail.glass)}
                   </p>
                 </button>
-                <button
-                  aria-label={t.explore.cardFavoriteAria.replace(
-                    '{name}',
-                    cocktail.name,
+                <div className="flex shrink-0 items-center gap-1">
+                  {cocktail.isCustom && onEdit && (
+                    <button
+                      aria-label={t.explore.cardEditAria.replace(
+                        '{name}',
+                        cocktail.name,
+                      )}
+                      className="grid h-8 w-8 place-items-center rounded-full text-[#8d9493] hover:bg-white/7 hover:text-[#e8c197]"
+                      onClick={() => onEdit(cocktail)}
+                      type="button"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
                   )}
-                  className={`grid h-8 w-8 place-items-center rounded-full ${isLiked ? 'bg-[#c88955]/15 text-[#e8c197]' : 'text-[#8d9493] hover:bg-white/7'}`}
-                  onClick={() => toggleLike(cocktail.id)}
-                  type="button"
-                >
-                  <Heart
-                    className="h-4 w-4"
-                    fill={isLiked ? 'currentColor' : 'none'}
-                  />
-                </button>
+                  {cocktail.isCustom && onDelete && (
+                    <button
+                      aria-label={t.explore.cardDeleteAria.replace(
+                        '{name}',
+                        cocktail.name,
+                      )}
+                      className="grid h-8 w-8 place-items-center rounded-full text-[#8d9493] hover:bg-white/7 hover:text-[#f0bbb4]"
+                      onClick={() => onDelete(cocktail)}
+                      type="button"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <button
+                    aria-label={t.explore.cardFavoriteAria.replace(
+                      '{name}',
+                      cocktail.name,
+                    )}
+                    className={`grid h-8 w-8 place-items-center rounded-full ${isLiked ? 'bg-[#c88955]/15 text-[#e8c197]' : 'text-[#8d9493] hover:bg-white/7'}`}
+                    onClick={() => toggleLike(cocktail.id)}
+                    type="button"
+                  >
+                    <Heart
+                      className="h-4 w-4"
+                      fill={isLiked ? 'currentColor' : 'none'}
+                    />
+                  </button>
+                </div>
               </div>
               <p className="mt-3 line-clamp-1 text-xs text-[#b3b6ae]">
                 {cocktail.ingredients

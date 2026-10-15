@@ -1,0 +1,470 @@
+{
+  "feature_id": "recipe-local-images",
+  "title": "自建 Recipe 图片本机磁盘存储方案（候选草稿）",
+  "problem": "用户希望新增 recipe 的图片与内置配方图片一样保存为项目中的真实文件。当前 app/page.tsx 的新增/编辑表单只接受图片 URL，配方记录通过 saveAppStorage 写入浏览器 localStorage；内置目录通过 tools/cocktail-catalog-plugin.ts 在开发期生成资源 URL、构建期输出静态图片。知识库 K-003～K-006 的相关证据已变化，本方案以当前源码回查为依据。用户已选择项目磁盘存储、选择本地图片且兼容旧 URL、首期本机运行且部署版保留 URL。",
+  "goals": [
+    "本机新增和编辑自建配方时，可选择图片并保存为项目内的真实文件。",
+    "刷新页面及重启本机服务后，已有配方仍能通过稳定 URL 读取磁盘图片。",
+    "保留旧图片 URL 和无图片配方的兼容行为，部署版继续使用 URL。"
+  ],
+  "scope": {
+    "in": [
+      "本机 npm run dev 模式的图片选择、预览、上传、读取、替换和解除引用。",
+      "候选方案：新增 Node/Vite 本机中间件负责文件读写，建议目录 resource/user-recipe-images/；此目录位于内置目录之外，不触发其 full-reload 监听。",
+      "候选方案：首期配方正文仍保存于现有 localStorage，仅图片文件落盘。",
+      "候选方案：每个 recipe 一张可选图片，支持 JPEG、PNG、WebP，首期保留原文件，不增加裁剪或压缩。"
+    ],
+    "out": [
+      "部署版图片上传、云存储和自动同步。",
+      "将自建配方正文写入内置 recipe data.json 或加入内置目录。",
+      "旧远程 URL 自动下载；多图相册；导出与分享。",
+      "候选方案：自动删除历史图片及跨浏览器垃圾回收；npm run start 的 Worker 本地预览磁盘写入。"
+    ]
+  },
+  "sources": [
+    {
+      "id": "S-01",
+      "type": "user",
+      "locator": "本会话 2026-10-12 用户需求及第一轮选项回复",
+      "summary": "新增 recipe 图片保存到项目磁盘目录；选择本地图片；旧图片 URL 继续兼容。",
+      "status": "verified"
+    },
+    {
+      "id": "S-02",
+      "type": "user",
+      "locator": "本会话 2026-10-12 第二轮选项回复",
+      "summary": "先支持本机运行；部署版保留图片 URL。",
+      "status": "verified"
+    },
+    {
+      "id": "S-03",
+      "type": "code",
+      "locator": "app/page.tsx#openCreateForm/openEditForm/submitRecipe 与图片 Input、持久化 effect；lib/custom-recipes.ts#sanitizeCustomRecipes；lib/ingredient-storage.ts#saveAppStorage",
+      "summary": "当前选择为图片 URL 字符串；配方更新后由 effect 写 localStorage。列表、精选和详情以 image 字符串为 src；新增文件保存必须协调现有保存成功提示与失败处理。",
+      "status": "verified"
+    },
+    {
+      "id": "S-04",
+      "type": "code",
+      "locator": "tools/cocktail-catalog-plugin.ts#readRecipes/load/configureServer；vite.config.ts；package.json；.gitignore",
+      "summary": "内置数据读 resource/data/cocktails；该目录变动触发 full-reload；开发与构建图片 URL 不同；dev 使用 vinext，start 使用 Wrangler；resource 全目录被 Git 忽略。",
+      "status": "verified"
+    },
+    {
+      "id": "S-05",
+      "type": "document",
+      "locator": "https://developers.cloudflare.com/workers/runtime-apis/nodejs/fs/ ，2026-10-12 查询",
+      "summary": "Cloudflare Workers 提供虚拟文件系统，不能据此视为本机项目目录的持久磁盘写入能力。本机文件操作应放到 Node/Vite 宿主。",
+      "status": "verified"
+    }
+  ],
+  "stories": [
+    {
+      "id": "US-01",
+      "role": "本机使用者",
+      "want": "创建 recipe 时选择电脑中的图片",
+      "benefit": "让自己的配方拥有不依赖外部图片站点的封面",
+      "scenario": "在新建或编辑表单选择文件后预览，提交时上传到本机服务；成功后关联稳定 URL。取消表单不上传；文件不合法或写入失败时保留表单以便修改或重试。",
+      "source_ids": [
+        "S-01",
+        "S-03"
+      ]
+    },
+    {
+      "id": "US-02",
+      "role": "已有 recipe 的使用者",
+      "want": "保留旧图片并能替换或移除封面",
+      "benefit": "升级后原有配方仍可使用，图片管理行为清晰",
+      "scenario": "旧 URL 原样加载；编辑可换本地文件或去除关联；刷新和服务重启后正常读取；文件丢失显示占位图而不影响正文。",
+      "source_ids": [
+        "S-01",
+        "S-03"
+      ]
+    },
+    {
+      "id": "US-03",
+      "role": "部署版使用者",
+      "want": "继续通过 URL 设置图片",
+      "benefit": "本机上传能力不干扰部署版原有录入",
+      "scenario": "部署版只展示图片 URL 入口，本机磁盘服务不可用时不将文件上传显示为保存成功。",
+      "source_ids": [
+        "S-02",
+        "S-04",
+        "S-05"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "FR-01",
+      "statement": "本机新增/编辑表单支持一张可选本地图片及即时预览，保留 URL 入口；两种来源显式切换，仅保存一种。建议 JPEG/PNG/WebP；取消不写磁盘。文件大小上限待确认。",
+      "type": "functional",
+      "priority": "Must",
+      "story_ids": [
+        "US-01"
+      ],
+      "source_ids": [
+        "S-01",
+        "S-03"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "FR-02",
+      "statement": "新增本机图片服务，候选接口 POST /api/recipe-images 与 GET /api/recipe-images/{assetId}，由 Node/Vite 宿主读写 resource/user-recipe-images/。服务生成不可猜测的唯一资产名，校验格式、大小及解码结果；固定读写根目录，校验解析后路径，不接受用户提供磁盘路径；写临时文件完成后原子发布。写入接口仅限本机可信同源请求。接口和目录均为提案，尚未实现。",
+      "type": "functional",
+      "priority": "Must",
+      "story_ids": [
+        "US-01",
+        "US-02"
+      ],
+      "source_ids": [
+        "S-01",
+        "S-04",
+        "S-05"
+      ],
+      "depends_on": [
+        "FR-01"
+      ]
+    },
+    {
+      "id": "FR-03",
+      "statement": "点击保存后，先完成图片落盘，再持久化 recipe 的稳定同源图片 URL；图片与配方记录都保存成功后才关闭表单并提示成功。持久化失败时保留旧配方和旧封面，尝试回收本次唯一新文件；回收失败须记录待清理资产。处理重复提交；不得把预览 blob URL 或绝对磁盘路径保存为持久引用。",
+      "type": "functional",
+      "priority": "Must",
+      "story_ids": [
+        "US-01"
+      ],
+      "source_ids": [
+        "S-03"
+      ],
+      "depends_on": [
+        "FR-02"
+      ]
+    },
+    {
+      "id": "FR-04",
+      "statement": "旧 image URL 保留；无图片 recipe 保持正常；本地图片可在列表、精选、详情一致展示。编辑可替换或移除关联；文件丢失时显示占位图而正文仍可用。建议删除 recipe 或替换封面仅解除旧文件关联，首期保留旧文件，避免误删其他浏览器仍引用的资产。",
+      "type": "functional",
+      "priority": "Must",
+      "story_ids": [
+        "US-02"
+      ],
+      "source_ids": [
+        "S-01",
+        "S-03"
+      ],
+      "depends_on": [
+        "FR-03"
+      ]
+    },
+    {
+      "id": "CR-01",
+      "statement": "首期上传仅用于 npm run dev 的本机 Node/Vite 宿主；部署版和当前 npm run start 的 Worker 预览保留 URL 入口。通过服务能力判断显示入口，并兼容服务中途不可用。不得承诺本机磁盘图片随发布自动可用。",
+      "type": "constraint",
+      "priority": "Must",
+      "story_ids": [
+        "US-03"
+      ],
+      "source_ids": [
+        "S-02",
+        "S-04",
+        "S-05"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "CR-02",
+      "statement": "候选首期仅图片落盘，配方、收藏、库存继续现有浏览器存储，图片变更不覆盖这些数据。resource 目录目前被 Git 忽略，因此磁盘文件需另行备份；清空浏览器数据后文件虽仍在但不会自动恢复配方。新增提示、错误、控件提供中英双语。",
+      "type": "constraint",
+      "priority": "Must",
+      "story_ids": [
+        "US-01",
+        "US-02"
+      ],
+      "source_ids": [
+        "S-03",
+        "S-04"
+      ],
+      "depends_on": []
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "AC-01",
+      "requirement_ids": [
+        "FR-01",
+        "FR-02",
+        "FR-03"
+      ],
+      "given": "本机 npm run dev；浏览器存储和目标目录可写；使用约定格式、大小以内的图片",
+      "when": "新建 recipe，选择图片并保存，刷新页面后重启本机服务再次打开",
+      "then": "目标目录存在真实文件；recipe 记录包含稳定 URL；列表、精选、详情显示同一图片；两项持久化完成后才显示保存成功。",
+      "verification": "后续浏览器流程验证并检查磁盘文件、浏览器存储；本次未执行。"
+    },
+    {
+      "id": "AC-02",
+      "requirement_ids": [
+        "FR-01",
+        "FR-02",
+        "FR-03"
+      ],
+      "given": "表单已有完整配方与旧封面",
+      "when": "取消选择或取消表单；分别提交非图片、超出约定上限的文件，模拟磁盘不可写、服务断开和 localStorage 写入失败",
+      "then": "取消不落盘；失败有明确提示，表单与旧记录保持可用，不出现虚假成功；回收失败留可追踪记录。",
+      "verification": "后续文件接口集成测试、故障注入及浏览器操作；大小上限待确认。"
+    },
+    {
+      "id": "AC-03",
+      "requirement_ids": [
+        "FR-04",
+        "CR-02"
+      ],
+      "given": "旧 URL、无图片和已有本地图片三种自建配方",
+      "when": "升级加载、替换本地图片、去除关联、删除配方，以及手动移走图片文件",
+      "then": "旧 URL 仍正常按原规则加载；无图或丢图显示占位；替换和去除后各视图一致；recipe id、库存、收藏和其他 recipe 保持正确。候选规则下历史文件保留。",
+      "verification": "后续回归验证三种旧数据；检查替换前后 id、localStorage、目录内容。"
+    },
+    {
+      "id": "AC-04",
+      "requirement_ids": [
+        "FR-02"
+      ],
+      "given": "本机图片接口可访问",
+      "when": "提交路径穿越名称、伪造图片类型、非可信来源请求和重复保存请求",
+      "then": "拒绝非法操作且不越出固定目录；唯一资产不覆盖已有文件；前端保存过程中阻止重复提交。",
+      "verification": "后续接口测试解析后路径与请求来源约束；浏览器双击提交验证。"
+    },
+    {
+      "id": "AC-05",
+      "requirement_ids": [
+        "CR-01",
+        "FR-04"
+      ],
+      "given": "部署版或当前 npm run start Worker 预览；分别使用中文和英文",
+      "when": "打开新增/编辑表单并保存 URL；本机模式图片服务中途断开",
+      "then": "无磁盘上传能力时只提供 URL 路径；URL 正常保存；断开时提示失败；新增文案两种语言均完整。",
+      "verification": "后续运行不同模式并浏览器验证；本次仅源码调查。"
+    }
+  ],
+  "assessments": [
+    {
+      "id": "A-01",
+      "requirement_ids": [
+        "FR-01"
+      ],
+      "affected": [
+        "app/page.tsx 图片选择、来源切换与预览状态",
+        "lib/i18n.ts 文件选择和预览错误文案"
+      ],
+      "difficulty": "low",
+      "rationale": "图片选择与预览可集中在现有新增/编辑表单，提交前无需落盘；需要管理临时预览 URL 的创建与释放。上传和保存协调分别由 A-02、A-03 评估。本项为初步判断，功能及性能验收仍待确认。",
+      "risks": [
+        "来源切换或取消后未清理预览状态，可能误保存旧图片或累积临时资源。"
+      ],
+      "unknowns": [
+        "支持格式、单文件大小与像素上限仍待确认。"
+      ],
+      "source_ids": [
+        "S-01",
+        "S-03"
+      ]
+    },
+    {
+      "id": "A-02",
+      "requirement_ids": [
+        "FR-02"
+      ],
+      "affected": [
+        "新增 Node/Vite 本机图片服务插件",
+        "vite.config.ts 插件注册",
+        "resource/user-recipe-images/ 目录与图片读取接口"
+      ],
+      "difficulty": "medium",
+      "rationale": "已有插件使用 Node 文件系统，但当前仅读取内置资源。上传需要增加格式和解码校验、受限路径、来源约束、唯一文件名及临时文件原子发布；目录放在内置监听目录之外，避免触发整页重载。验证须覆盖合法上传及拒绝异常请求。本项为初步判断。",
+      "risks": [
+        "路径或内容校验不足可能写入目录外或保存伪造图片。",
+        "服务崩溃可能遗留临时文件；上传目录混入内置监听范围会触发重载。"
+      ],
+      "unknowns": [
+        "Vite/Vinext/Cloudflare 插件组合下中间件接入顺序与图片解码方式须在实施时验证。",
+        "单文件字节及像素上限、典型图片数量与性能目标未确认。"
+      ],
+      "source_ids": [
+        "S-04",
+        "S-05"
+      ]
+    },
+    {
+      "id": "A-03",
+      "requirement_ids": [
+        "FR-03"
+      ],
+      "affected": [
+        "app/page.tsx#submitRecipe 提交流程与成功提示",
+        "app/page.tsx 保存 effect 和 lib/ingredient-storage.ts#saveAppStorage 的协调",
+        "本机图片服务的新文件回收与待清理记录"
+      ],
+      "difficulty": "medium",
+      "rationale": "这是保存一致性的主要改动：当前 submitRecipe 更新状态并立即提示成功，随后 effect 才写 localStorage。需先确认文件落盘，再确认配方正文持久化，并在失败时保留旧数据、处理新资产回收及重复提交。磁盘与浏览器存储不属于同一事务，验证需分别注入两端失败。本项为初步判断。",
+      "risks": [
+        "磁盘与 localStorage 不是一个事务；崩溃窗口可能遗留文件。",
+        "异步 effect 与显式保存若未协调，可能覆盖旧记录或过早显示成功。",
+        "回收失败必须可追踪，不能静默丢失清理信息。"
+      ],
+      "unknowns": [
+        "跨存储失败恢复和崩溃后待清理记录的具体机制尚未确定。",
+        "保存耗时的环境、规模和可接受目标仍待确认。"
+      ],
+      "source_ids": [
+        "S-03"
+      ]
+    },
+    {
+      "id": "A-04",
+      "requirement_ids": [
+        "FR-04"
+      ],
+      "affected": [
+        "lib/custom-recipes.ts#sanitizeCustomRecipes 的旧 image 字段兼容",
+        "app/page.tsx 编辑、删除、精选和详情图片展示",
+        "components/cocktail-cards.tsx 本地图片与缺图占位"
+      ],
+      "difficulty": "medium",
+      "rationale": "稳定图片 URL 可复用现有 image 字段，无需批量转换旧 URL。但替换和移除需要更新多处视图，并处理文件不存在或读取失败。候选规则下删除只解除关联、保留历史文件，避免单个浏览器误删其他浏览器引用的图片；须回归旧 URL、无图、本地图片三类数据。本项为初步判断。",
+      "risks": [
+        "不同浏览器共享磁盘但不共享 recipe 记录，不能据单个浏览器状态自动回收图片。",
+        "仅修改列表或详情一处会导致图片与缺图行为不一致。",
+        "保留历史图片会持续占用磁盘空间。"
+      ],
+      "unknowns": [
+        "保留历史文件、单张图片与格式范围尚待用户确认。",
+        "后续垃圾回收与备份恢复另行讨论。"
+      ],
+      "source_ids": [
+        "S-01",
+        "S-03"
+      ]
+    },
+    {
+      "id": "A-05",
+      "requirement_ids": [
+        "CR-01"
+      ],
+      "affected": [
+        "本机图片服务的能力识别",
+        "app/page.tsx 本机与部署版入口切换",
+        "package.json 的 dev/start 运行模式和 vite.config.ts"
+      ],
+      "difficulty": "medium",
+      "rationale": "当前 dev 使用 vinext，start 使用 Wrangler Worker 预览；图片写入需由 Node/Vite 宿主承担，不能将 Worker 虚拟文件系统当作项目持久磁盘。需让表单按实际服务能力提供文件入口或 URL，并处理能力检测后服务断开的情况。验证覆盖 dev、start 和部署模式。本项为初步判断。",
+      "risks": [
+        "仅用浏览器环境或构建标志判断，可能在无磁盘能力的运行模式错误展示上传入口。",
+        "本机磁盘图片不会自动随发布提供，不能在部署版承诺可读取本机文件。"
+      ],
+      "unknowns": [
+        "能力检测与插件接入须在不同运行模式验证；本次未运行服务。"
+      ],
+      "source_ids": [
+        "S-02",
+        "S-04",
+        "S-05"
+      ]
+    },
+    {
+      "id": "A-06",
+      "requirement_ids": [
+        "CR-02"
+      ],
+      "affected": [
+        "lib/ingredient-storage.ts#saveAppStorage 的数据保留",
+        "app/page.tsx 与 lib/i18n.ts 的提示文案",
+        "现有库存、收藏和自建配方兼容回归",
+        "resource 目录的现有 Git 忽略及备份说明"
+      ],
+      "difficulty": "low",
+      "rationale": "候选首期保持现有正文存储和稳定字符串图片字段，兼容迁移改动有限；需要确保新保存协调不覆盖库存、收藏和其他配方，并提供完整双语提示。resource 全目录被 Git 忽略，应明确磁盘文件备份与浏览器正文恢复的区别。本项为初步判断，正文仍用 localStorage 的范围尚待确认。",
+      "risks": [
+        "resource 被 Git 忽略；图片文件不会自动随克隆或部署提供。",
+        "清空浏览器数据后图片虽仍在，但配方不会自动恢复。",
+        "保存整份应用状态时可能覆盖其他页更新的库存或收藏，需回归检查。"
+      ],
+      "unknowns": [
+        "是否接受首期仅图片落盘、正文继续 localStorage 仍待用户确认。"
+      ],
+      "source_ids": [
+        "S-03",
+        "S-04"
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q-01",
+      "text": "是否接受首期只让图片落盘、recipe 正文继续 localStorage？如需正文也落盘，应扩展为本地 recipe 持久化方案，另评估恢复、目录加载和多浏览器一致性。",
+      "kind": "assumption",
+      "status": "open",
+      "resolution": "候选建议；尚未得到用户明确确认。"
+    },
+    {
+      "id": "Q-02",
+      "text": "是否接受一张可选 JPEG/PNG/WebP 图片、保留原文件，并在替换/删除配方后保留历史文件？",
+      "kind": "assumption",
+      "status": "open",
+      "resolution": "候选建议；保留历史文件用于避免误删跨浏览器引用。"
+    },
+    {
+      "id": "Q-03",
+      "text": "功能验收候选 AC-01～AC-05 及性能约束尚待确认：单文件字节/像素上限、典型图片数量和本机环境、保存/展示可接受响应目标。",
+      "kind": "assumption",
+      "status": "open",
+      "resolution": "草稿阶段不擅定阈值，也不继承旧 recipe PRD 的性能不适用结论。"
+    },
+    {
+      "id": "Q-04",
+      "text": "旧图垃圾回收、备份恢复、部署版上传与磁盘正文是否后续扩展？",
+      "kind": "deferred",
+      "status": "open",
+      "resolution": "另行需求讨论；首期不自动回收历史资产，不自动恢复浏览器配方。"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-01",
+      "topic": "存储位置",
+      "decision": "图片保存到项目磁盘目录。",
+      "quote": "项目磁盘目录，与内置 recipe 图片一样保存",
+      "source": "本会话 2026-10-12 第一轮选项回复"
+    },
+    {
+      "id": "D-02",
+      "topic": "图片来源",
+      "decision": "选择本地图片；兼容旧 URL。",
+      "quote": "选择本地图片；旧图片 URL 继续兼容（推荐）",
+      "source": "本会话 2026-10-12 第一轮选项回复"
+    },
+    {
+      "id": "D-03",
+      "topic": "运行范围",
+      "decision": "首期本机运行；部署版保留 URL。",
+      "quote": "先支持本机运行；部署版保留图片 URL（推荐）",
+      "source": "本会话 2026-10-12 第二轮选项回复"
+    }
+  ],
+  "changes": [
+    {
+      "id": "CH-01",
+      "reason": "按用户要求，将原合并评估细化为按需求逐项评估，便于独立审核。",
+      "affected_ids": [
+        "A-01",
+        "A-02",
+        "A-03",
+        "A-04",
+        "A-05",
+        "A-06"
+      ],
+      "scope_decision": "本会话用户要求：影响与难度评估根据需求划分，不要挤在一起。仅授权评估组织修订，未改变业务需求或批准整份 PRD。",
+      "details": "A-01 保留原编号并收窄至 FR-01；新增 A-02～A-06 分别对应 FR-02、FR-03、FR-04、CR-01、CR-02。原综合评估保留在 state 历史。所有需求、验收、未决问题和既有用户决定保持不变，复杂度为初步判断。"
+    }
+  ]
+}

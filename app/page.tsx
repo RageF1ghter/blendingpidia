@@ -8,9 +8,12 @@ import {
   ArrowUpRight,
   Dices,
   Heart,
+  NotebookPen,
+  Pencil,
   Plus,
   Search,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 import { CocktailCards } from '@/components/cocktail-cards';
@@ -31,7 +34,16 @@ import {
 import { Input } from '@/components/ui/input';
 import { LanguageToggle } from '@/components/language-toggle';
 import { useLang } from '@/hooks/use-lang';
-import { canonicalIngredientName } from '@/lib/ingredients';
+import {
+  countRecipeChildren,
+  deleteCustomRecipe,
+  findDuplicateCustomName,
+  normalizeRecipeRows,
+  sanitizeCustomRecipes,
+  suggestIngredientNames,
+  updateCustomRecipe,
+  type RecipeRow,
+} from '@/lib/custom-recipes';
 import {
   buildIngredientRegistry,
   builtInIngredientId,
@@ -93,7 +105,22 @@ export default function Home() {
   const [featuredId, setFeaturedId] = useState('negroni');
   const [detailId, setDetailId] = useState<string | null>(null);
   const [showFavorites, setShowFavorites] = useState(false);
+  const [showMine, setShowMine] = useState(false);
   const [showRecipeForm, setShowRecipeForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deletingRecipe, setDeletingRecipe] = useState<Cocktail | null>(null);
+  const [formName, setFormName] = useState('');
+  const [formParentId, setFormParentId] = useState('');
+  const [formMethod, setFormMethod] = useState<Method>('Shake');
+  const [formGlass, setFormGlass] = useState('Cocktail');
+  const [formImage, setFormImage] = useState('');
+  const [formInstructions, setFormInstructions] = useState('');
+  const [formRows, setFormRows] = useState<RecipeRow[]>([
+    { name: '', measure: '' },
+  ]);
+  const [duplicateWarning, setDuplicateWarning] = useState(false);
+  const [parentQuery, setParentQuery] = useState('');
+  const [suggestRow, setSuggestRow] = useState<number | null>(null);
   const [notice, setNotice] = useState('');
   const [sort, setSort] = useState<'popular' | 'name' | 'newest'>('popular');
   const [page, setPage] = useState({ key: '', count: 24 });
@@ -134,7 +161,7 @@ export default function Home() {
         setManagedIngredients(loaded.state.ingredients);
         setStockIds(loaded.state.stockIds);
         setLiked(loaded.state.liked);
-        setCustomRecipes(loaded.state.customRecipes);
+        setCustomRecipes(sanitizeCustomRecipes(loaded.state.customRecipes));
         setMigrationIssues(loaded.state.migrationIssues);
         setLegacyStockBackup(loaded.state.legacyStockBackup);
         if (loaded.needsPersist) saveAppStorage(loaded.state);
@@ -169,11 +196,14 @@ export default function Home() {
           ? current
           : loaded.state.liked,
       );
-      setCustomRecipes((current) =>
-        JSON.stringify(current) === JSON.stringify(loaded.state.customRecipes)
+      setCustomRecipes((current) => {
+        const loadedRecipes = sanitizeCustomRecipes(
+          loaded.state.customRecipes,
+        );
+        return JSON.stringify(current) === JSON.stringify(loadedRecipes)
           ? current
-          : loaded.state.customRecipes,
-      );
+          : loadedRecipes;
+      });
       setMigrationIssues((current) =>
         JSON.stringify(current) === JSON.stringify(loaded.state.migrationIssues)
           ? current
@@ -276,7 +306,8 @@ export default function Home() {
           matchesSearch &&
           matchesIngredients &&
           matchesStock &&
-          (!showFavorites || likedIds.has(cocktail.id))
+          (!showFavorites || likedIds.has(cocktail.id)) &&
+          (!showMine || Boolean(cocktail.isCustom))
         );
       })
       .sort((a, b) =>
@@ -296,6 +327,7 @@ export default function Home() {
     query,
     selectedIngredients,
     showFavorites,
+    showMine,
     sort,
     stockMode,
   ]);
@@ -305,6 +337,7 @@ export default function Home() {
     stockMode,
     selectedIngredients,
     showFavorites,
+    showMine,
     sort,
   ]);
   const visibleCount = page.key === pageKey ? page.count : 24;
@@ -346,38 +379,95 @@ export default function Home() {
     setNotice(t.notice.tryTonight.replace('{name}', choice.name));
   }
 
-  function addRecipe(event: FormEvent<HTMLFormElement>) {
+  const openCreateForm = useCallback(() => {
+    setEditingId(null);
+    setFormName('');
+    setFormParentId('');
+    setFormMethod('Shake');
+    setFormGlass('Cocktail');
+    setFormImage('');
+    setFormInstructions('');
+    setFormRows([{ name: '', measure: '' }]);
+    setDuplicateWarning(false);
+    setParentQuery('');
+    setSuggestRow(null);
+    setShowRecipeForm(true);
+  }, []);
+
+  const openEditForm = useCallback((recipe: Cocktail) => {
+    setEditingId(recipe.id);
+    setFormName(recipe.name);
+    setFormParentId(recipe.parentId ?? '');
+    setFormMethod(recipe.method);
+    setFormGlass(recipe.glass);
+    setFormImage(recipe.image ?? '');
+    setFormInstructions(recipe.instructions ?? '');
+    setFormRows(
+      recipe.ingredients.map((name, index) => ({
+        name,
+        measure: recipe.measures?.[index] ?? '',
+      })),
+    );
+    setDuplicateWarning(false);
+    setParentQuery('');
+    setSuggestRow(null);
+    setDetailId(null);
+    setShowRecipeForm(true);
+  }, []);
+
+  function submitRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!hydrated || storageBlocked) return;
-    const form = new FormData(event.currentTarget);
-    const name = String(form.get('name') ?? '').trim();
-    const ingredients = [
-      ...new Set(
-        String(form.get('ingredients') ?? '')
-          .split(',')
-          .map(
-            (item) =>
-              findManagedIngredient(item, ingredientRegistry)?.nameEn ??
-              canonicalIngredientName(item),
-          )
-          .filter(Boolean),
-      ),
-    ];
-    if (!name || !ingredients.length) {
+    const name = formName.trim();
+    const filledRows = formRows.filter((row) => row.name.trim());
+    if (!name || !filledRows.length) {
       setNotice(t.notice.formRequired);
+      return;
+    }
+    const duplicate = findDuplicateCustomName(
+      name,
+      customRecipes,
+      editingId ?? undefined,
+    );
+    if (duplicate && !duplicateWarning) {
+      setDuplicateWarning(true);
+      return;
+    }
+    const { ingredients, measures } = normalizeRecipeRows(
+      filledRows,
+      ingredientRegistry,
+    );
+    const parentId = formParentId || null;
+    if (editingId) {
+      setCustomRecipes((current) =>
+        updateCustomRecipe(current, editingId, {
+          name,
+          image: formImage.trim() || undefined,
+          method: formMethod,
+          glass: formGlass.trim() || 'Cocktail',
+          ingredients,
+          measures,
+          instructions: formInstructions.trim(),
+          parentId,
+        }),
+      );
+      setFeaturedId(editingId);
+      setShowRecipeForm(false);
+      setNotice(t.notice.updated.replace('{name}', name));
       return;
     }
     const recipe: Cocktail = {
       id: slugify(name),
       name,
-      image: String(form.get('image') ?? '').trim() || undefined,
-      method: String(form.get('method')) as Method,
-      glass: String(form.get('glass') ?? '').trim() || 'Cocktail',
+      image: formImage.trim() || undefined,
+      method: formMethod,
+      glass: formGlass.trim() || 'Cocktail',
       ingredients,
+      measures,
       tags: ['My recipe'],
       likes: 0,
-      instructions: String(form.get('instructions') ?? '').trim(),
-      parentId: String(form.get('parentId') ?? '') || null,
+      instructions: formInstructions.trim(),
+      parentId,
       isCustom: true,
     };
     setCustomRecipes((current) => [recipe, ...current]);
@@ -387,6 +477,46 @@ export default function Home() {
       recipe.parentId
         ? t.notice.addedVariant.replace('{name}', recipe.name)
         : t.notice.added.replace('{name}', recipe.name),
+    );
+  }
+
+  function confirmDeleteRecipe() {
+    if (!deletingRecipe || !hydrated || storageBlocked) return;
+    const target = deletingRecipe;
+    const { recipes } = deleteCustomRecipe(customRecipes, target.id);
+    setCustomRecipes(recipes);
+    setLiked((current) =>
+      current.includes(target.id)
+        ? current.filter((item) => item !== target.id)
+        : current,
+    );
+    if (featuredId === target.id) setFeaturedId('negroni');
+    if (detailId === target.id) setDetailId(null);
+    setDeletingRecipe(null);
+    setNotice(t.notice.deleted.replace('{name}', target.name));
+  }
+
+  const parentCandidates = useMemo(() => {
+    const keyword = parentQuery.trim();
+    const lowered = keyword.toLocaleLowerCase();
+    return cocktails
+      .filter((item) => !item.parentId && item.id !== editingId)
+      .filter(
+        (item) =>
+          !keyword ||
+          item.name.toLocaleLowerCase().includes(lowered) ||
+          fuzzyMatch(keyword, item.name.toLocaleLowerCase()),
+      )
+      .slice(0, 8);
+  }, [cocktails, parentQuery, editingId]);
+
+  const selectedParent = formParentId
+    ? cocktails.find((item) => item.id === formParentId)
+    : undefined;
+
+  function updateRow(index: number, patch: Partial<RecipeRow>) {
+    setFormRows((current) =>
+      current.map((row, i) => (i === index ? { ...row, ...patch } : row)),
     );
   }
 
@@ -470,9 +600,23 @@ export default function Home() {
             <Heart fill={showFavorites ? 'currentColor' : 'none'} />
           </Button>
           <Button
+            aria-label={t.header.showMine}
+            className={
+              showMine
+                ? 'bg-[#c88955]/15 text-[#e8c197]'
+                : 'bg-transparent text-[#d2d4cc] hover:bg-white/6'
+            }
+            disabled={!hydrated || storageBlocked}
+            onClick={() => setShowMine((value) => !value)}
+            size="icon"
+            variant="ghost"
+          >
+            <NotebookPen />
+          </Button>
+          <Button
             className="hidden bg-[#c88955] text-[#1a1512] hover:bg-[#deb07f] sm:inline-flex"
             disabled={!hydrated || storageBlocked}
-            onClick={() => setShowRecipeForm(true)}
+            onClick={openCreateForm}
           >
             <Plus /> {t.header.add}
           </Button>
@@ -598,7 +742,7 @@ export default function Home() {
                     </span>
                   )}
                 </div>
-                <p className="mt-5 text-sm leading-6 text-[#c5c5bd]">
+                <p className="mt-5 whitespace-pre-line text-sm leading-6 text-[#c5c5bd]">
                   {featuredDetails.loading
                     ? t.recipe.loading
                     : featuredInstructions}
@@ -612,14 +756,34 @@ export default function Home() {
                     {t.recipe.loadError} {t.recipe.retry}
                   </button>
                 )}
-                <button
-                  className="mt-5 inline-flex w-fit items-center gap-2 rounded-full border border-[#c88955]/40 px-4 py-2 text-xs text-[#e8c197] transition hover:bg-[#c88955]/10"
-                  onClick={() => openDetail(featured.id)}
-                  type="button"
-                >
-                  {t.featured.viewDetail}{' '}
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </button>
+                <div className="mt-5 flex flex-wrap items-center gap-2">
+                  <button
+                    className="inline-flex w-fit items-center gap-2 rounded-full border border-[#c88955]/40 px-4 py-2 text-xs text-[#e8c197] transition hover:bg-[#c88955]/10"
+                    onClick={() => openDetail(featured.id)}
+                    type="button"
+                  >
+                    {t.featured.viewDetail}{' '}
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </button>
+                  {featured.isCustom && (
+                    <>
+                      <button
+                        className="inline-flex w-fit items-center gap-2 rounded-full border border-white/12 px-4 py-2 text-xs text-[#d2d4cc] transition hover:bg-white/6 hover:text-[#e8c197]"
+                        onClick={() => openEditForm(featured)}
+                        type="button"
+                      >
+                        <Pencil className="h-3.5 w-3.5" /> {t.featured.edit}
+                      </button>
+                      <button
+                        className="inline-flex w-fit items-center gap-2 rounded-full border border-white/12 px-4 py-2 text-xs text-[#d2d4cc] transition hover:bg-[#d46d60]/10 hover:text-[#f0bbb4]"
+                        onClick={() => setDeletingRecipe(featured)}
+                        type="button"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> {t.featured.del}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -630,16 +794,18 @@ export default function Home() {
                 {t.explore.label}
               </p>
               <h2 className="mt-1 font-serif text-2xl tracking-tight">
-                {showFavorites
-                  ? t.explore.favorites
-                  : selectedIngredients.length
-                    ? t.explore.withIngredients.replace(
-                        '{list}',
-                        selectedIngredients
-                          .map((item) => tr(ingredientNames, item))
-                          .join(' + '),
-                      )
-                    : t.explore.all}
+                {showMine
+                  ? t.explore.myRecipes
+                  : showFavorites
+                    ? t.explore.favorites
+                    : selectedIngredients.length
+                      ? t.explore.withIngredients.replace(
+                          '{list}',
+                          selectedIngredients
+                            .map((item) => tr(ingredientNames, item))
+                            .join(' + '),
+                        )
+                      : t.explore.all}
               </h2>
             </div>
             <label className="rounded-lg border border-white/10 px-3 py-2 text-xs text-[#bec0b8]">
@@ -666,6 +832,8 @@ export default function Home() {
                 liked={likedIds}
                 openDetail={openDetail}
                 toggleLike={toggleLike}
+                onEdit={openEditForm}
+                onDelete={(cocktail) => setDeletingRecipe(cocktail)}
               />
             </div>
           ) : (
@@ -735,51 +903,122 @@ export default function Home() {
         </section>
       </div>
 
-      <Dialog onOpenChange={setShowRecipeForm} open={showRecipeForm}>
+      <Dialog
+        onOpenChange={(open) => {
+          setShowRecipeForm(open);
+          if (!open) setDuplicateWarning(false);
+        }}
+        open={showRecipeForm}
+      >
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-white/10 bg-[#202427] text-[#f3ebdd]">
           <DialogHeader>
             <DialogTitle className="font-serif text-2xl">
-              {t.formDialog.title}
+              {editingId ? t.formDialog.editTitle : t.formDialog.title}
             </DialogTitle>
-            <DialogDescription>{t.formDialog.description}</DialogDescription>
+            <DialogDescription>
+              {editingId
+                ? t.formDialog.editDescription
+                : t.formDialog.description}
+            </DialogDescription>
           </DialogHeader>
-          <form className="grid gap-4" onSubmit={addRecipe}>
+          <form className="grid gap-4" onSubmit={submitRecipe}>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="grid gap-2 text-xs text-[#b5b9b1]">
                 {t.formDialog.name}
                 <Input
                   className="border-white/10 bg-black/15 text-[#f3ebdd]"
-                  name="name"
+                  onChange={(event) => {
+                    setFormName(event.target.value);
+                    setDuplicateWarning(false);
+                  }}
                   placeholder="Smoked Negroni"
+                  value={formName}
                 />
               </label>
-              <label className="grid gap-2 text-xs text-[#b5b9b1]">
-                {t.formDialog.relation}
-                <select
-                  className="h-9 rounded-lg border border-white/10 bg-black/15 px-2 text-sm text-[#f3ebdd]"
-                  name="parentId"
-                >
-                  <option value="">{t.formDialog.original}</option>
-                  {cocktails
-                    .filter((item) => !item.parentId)
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {t.formDialog.basedOn.replace('{name}', item.name)}
-                      </option>
-                    ))}
-                </select>
-              </label>
+              <div className="grid gap-2 text-xs text-[#b5b9b1]">
+                <span>{t.formDialog.relation}</span>
+                {selectedParent ? (
+                  <div className="flex h-9 items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/15 px-3 text-sm text-[#f3ebdd]">
+                    <span className="truncate">
+                      {t.formDialog.basedOn.replace(
+                        '{name}',
+                        selectedParent.name,
+                      )}
+                    </span>
+                    <button
+                      aria-label={t.formDialog.parentClear}
+                      className="shrink-0 text-[#9ca3a7] hover:text-[#f3ebdd]"
+                      onClick={() => setFormParentId('')}
+                      type="button"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Input
+                      className="border-white/10 bg-black/15 text-[#f3ebdd]"
+                      onChange={(event) => setParentQuery(event.target.value)}
+                      placeholder={t.formDialog.parentSearchPlaceholder}
+                      value={parentQuery}
+                    />
+                    {parentQuery && (
+                      <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-white/10 bg-[#202427] py-1 shadow-xl">
+                        {parentCandidates.length ? (
+                          parentCandidates.map((item) => (
+                            <button
+                              className="block w-full truncate px-3 py-2 text-left text-sm text-[#ded9ed] hover:bg-white/6"
+                              key={item.id}
+                              onClick={() => {
+                                setFormParentId(item.id);
+                                setParentQuery('');
+                              }}
+                              type="button"
+                            >
+                              {t.formDialog.basedOn.replace(
+                                '{name}',
+                                item.name,
+                              )}
+                            </button>
+                          ))
+                        ) : (
+                          <p className="px-3 py-2 text-xs text-[#8d9493]">
+                            {t.formDialog.parentNoMatch}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <span className="text-[10px] text-[#858b8b]">
+                  {t.formDialog.parentHint}
+                </span>
+              </div>
             </div>
+            {duplicateWarning && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#c88955]/35 bg-[#c88955]/10 px-3 py-2 text-xs text-[#f1d4af]">
+                <span>
+                  {t.formDialog.duplicateWarning.replace('{name}', formName)}
+                </span>
+                <span className="text-[10px] text-[#d8b98c]">
+                  {t.formDialog.saveAnyway} →
+                </span>
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="grid gap-2 text-xs text-[#b5b9b1]">
                 {t.formDialog.method}
                 <select
                   className="h-9 rounded-lg border border-white/10 bg-black/15 px-2 text-sm text-[#f3ebdd]"
-                  defaultValue="Shake"
-                  name="method"
+                  onChange={(event) =>
+                    setFormMethod(event.target.value as Method)
+                  }
+                  value={formMethod}
                 >
                   {methods.map((item) => (
-                    <option key={item}>{tr(methodNames, item)}</option>
+                    <option key={item} value={item}>
+                      {tr(methodNames, item)}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -787,33 +1026,113 @@ export default function Home() {
                 {t.formDialog.glass}
                 <Input
                   className="border-white/10 bg-black/15 text-[#f3ebdd]"
-                  defaultValue="Cocktail"
-                  name="glass"
+                  onChange={(event) => setFormGlass(event.target.value)}
+                  value={formGlass}
                 />
               </label>
             </div>
-            <label className="grid gap-2 text-xs text-[#b5b9b1]">
-              {t.formDialog.ingredients}
-              <Input
-                className="border-white/10 bg-black/15 text-[#f3ebdd]"
-                name="ingredients"
-                placeholder="Gin, Lime juice, Simple Syrup"
-              />
-            </label>
+            <div className="grid gap-2">
+              <span className="text-xs text-[#b5b9b1]">
+                {t.formDialog.ingredients}
+              </span>
+              {formRows.map((row, index) => {
+                const suggestions =
+                  suggestRow === index
+                    ? suggestIngredientNames(row.name, ingredientRegistry)
+                    : [];
+                return (
+                  <div className="grid gap-2 sm:grid-cols-[1fr_130px_32px]" key={index}>
+                    <div className="relative">
+                      <Input
+                        className="border-white/10 bg-black/15 text-[#f3ebdd]"
+                        onBlur={() =>
+                          setTimeout(() => {
+                            setSuggestRow((current) =>
+                              current === index ? null : current,
+                            );
+                          }, 120)
+                        }
+                        onChange={(event) =>
+                          updateRow(index, { name: event.target.value })
+                        }
+                        onFocus={() => setSuggestRow(index)}
+                        placeholder={t.formDialog.ingredientNamePlaceholder}
+                        value={row.name}
+                      />
+                      {suggestions.length > 0 && (
+                        <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-white/10 bg-[#202427] py-1 shadow-xl">
+                          {suggestions.map((name) => (
+                            <button
+                              className="block w-full truncate px-3 py-2 text-left text-sm text-[#ded9ed] hover:bg-white/6"
+                              key={name}
+                              onClick={() => updateRow(index, { name })}
+                              onMouseDown={(event) => event.preventDefault()}
+                              type="button"
+                            >
+                              {tr(ingredientNames, name)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <Input
+                      aria-label={t.formDialog.measure}
+                      className="border-white/10 bg-black/15 text-[#f3ebdd]"
+                      onChange={(event) =>
+                        updateRow(index, { measure: event.target.value })
+                      }
+                      placeholder={t.formDialog.measurePlaceholder}
+                      value={row.measure}
+                    />
+                    <button
+                      aria-label={t.formDialog.removeRow}
+                      className="grid h-9 w-8 place-items-center rounded-lg text-[#8d9493] hover:bg-white/7 hover:text-[#f0bbb4]"
+                      onClick={() =>
+                        setFormRows((current) =>
+                          current.length > 1
+                            ? current.filter((_, i) => i !== index)
+                            : [{ name: '', measure: '' }],
+                        )
+                      }
+                      type="button"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })}
+              <Button
+                className="w-fit border-white/12 text-[#c5c8c1] hover:bg-white/6"
+                onClick={() =>
+                  setFormRows((current) => [
+                    ...current,
+                    { name: '', measure: '' },
+                  ])
+                }
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Plus /> {t.formDialog.addRow}
+              </Button>
+            </div>
             <label className="grid gap-2 text-xs text-[#b5b9b1]">
               {t.formDialog.image}
               <Input
                 className="border-white/10 bg-black/15 text-[#f3ebdd]"
-                name="image"
+                onChange={(event) => setFormImage(event.target.value)}
                 placeholder="https://..."
+                value={formImage}
               />
             </label>
             <label className="grid gap-2 text-xs text-[#b5b9b1]">
               {t.formDialog.instructions}
               <textarea
                 className="min-h-24 rounded-lg border border-white/10 bg-black/15 p-3 text-sm text-[#f3ebdd] outline-none focus:border-[#c88955]/70"
-                name="instructions"
+                onChange={(event) => setFormInstructions(event.target.value)}
                 placeholder={t.formDialog.instructionsPlaceholder}
+                rows={4}
+                value={formInstructions}
               />
             </label>
             <div className="flex justify-end gap-2 pt-2">
@@ -829,7 +1148,11 @@ export default function Home() {
                 className="bg-[#c88955] text-[#1a1512] hover:bg-[#deb07f]"
                 type="submit"
               >
-                {t.formDialog.save}
+                {duplicateWarning
+                  ? t.formDialog.saveAnyway
+                  : editingId
+                    ? t.formDialog.update
+                    : t.formDialog.save}
               </Button>
             </div>
           </form>
@@ -860,9 +1183,37 @@ export default function Home() {
                 <div className="absolute inset-0 bg-gradient-to-t from-[#202427] via-transparent to-transparent" />
               </div>
               <DialogHeader>
-                <DialogTitle className="font-serif text-3xl text-[#f6f0e4]">
-                  {detail.name}
-                </DialogTitle>
+                <div className="flex items-start justify-between gap-3">
+                  <DialogTitle className="font-serif text-3xl text-[#f6f0e4]">
+                    {detail.name}
+                  </DialogTitle>
+                  {detail.isCustom && (
+                    <div className="flex shrink-0 gap-1 pt-1">
+                      <button
+                        aria-label={t.explore.cardEditAria.replace(
+                          '{name}',
+                          detail.name,
+                        )}
+                        className="grid h-8 w-8 place-items-center rounded-full text-[#8d9493] hover:bg-white/7 hover:text-[#e8c197]"
+                        onClick={() => openEditForm(detail)}
+                        type="button"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        aria-label={t.explore.cardDeleteAria.replace(
+                          '{name}',
+                          detail.name,
+                        )}
+                        className="grid h-8 w-8 place-items-center rounded-full text-[#8d9493] hover:bg-white/7 hover:text-[#f0bbb4]"
+                        onClick={() => setDeletingRecipe(detail)}
+                        type="button"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <DialogDescription className="text-sm text-[#aeb2aa]">
                   {tr(methodNames, detail.method)} ·{' '}
                   {tr(glassNames, detail.glass)}
@@ -946,13 +1297,61 @@ export default function Home() {
                   <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8d9493]">
                     {t.recipe.method}
                   </h3>
-                  <p className="text-sm leading-6 text-[#c5c5bd]">
+                  <p className="whitespace-pre-line text-sm leading-6 text-[#c5c5bd]">
                     {detailInstructions}
                   </p>
                 </section>
               )}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open) setDeletingRecipe(null);
+        }}
+        open={deletingRecipe !== null}
+      >
+        <DialogContent className="border-white/10 bg-[#202427] text-[#f3ebdd]">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-2xl">
+              {t.formDialog.deleteTitle}
+            </DialogTitle>
+            <DialogDescription>
+              {t.formDialog.deleteBody.replace(
+                '{name}',
+                deletingRecipe?.name ?? '',
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {deletingRecipe &&
+            countRecipeChildren(customRecipes, deletingRecipe.id) > 0 && (
+              <p className="rounded-lg border border-[#9b87d6]/30 bg-[#9b87d6]/10 px-3 py-2 text-xs text-[#c9bff3]">
+                {t.formDialog.deleteParentWarning.replace(
+                  '{count}',
+                  String(
+                    countRecipeChildren(customRecipes, deletingRecipe.id),
+                  ),
+                )}
+              </p>
+            )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              className="text-[#c5c8c1]"
+              onClick={() => setDeletingRecipe(null)}
+              type="button"
+              variant="ghost"
+            >
+              {t.formDialog.cancel}
+            </Button>
+            <Button
+              className="bg-[#d46d60] text-[#1a1512] hover:bg-[#e08a7e]"
+              onClick={confirmDeleteRecipe}
+              type="button"
+            >
+              {t.formDialog.confirmDelete}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </main>
