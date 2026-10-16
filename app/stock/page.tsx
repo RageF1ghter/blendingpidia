@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Archive, ArrowLeft, Check, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { LanguageToggle } from '@/components/language-toggle';
 import { useLang } from '@/hooks/use-lang';
@@ -17,7 +17,9 @@ import {
 } from '@/lib/ingredient-registry';
 import { ingredientCategoryOrder, type IngredientCategory } from '@/lib/ingredients';
 import { categoryNames, term, ui, type TermMap } from '@/lib/i18n';
-import { loadAppStorage, reconcileIngredientMigration, saveAppStorage, type IngredientMigrationIssue } from '@/lib/ingredient-storage';
+import { loadAppStorage, type IngredientMigrationIssue } from '@/lib/ingredient-storage';
+import { commitBusinessState } from '@/lib/app-storage-repository';
+import { useBusinessStorageSync } from '@/hooks/use-app-storage';
 
 type IngredientForm = { nameEn: string; nameZh: string; category: IngredientCategory };
 
@@ -26,7 +28,6 @@ export default function StockPage() {
   const [stockIds, setStockIds] = useState<string[]>([]);
   const [ingredients, setIngredients] = useState<ManagedIngredient[]>([]);
   const [customRecipes, setCustomRecipes] = useState<Cocktail[]>([]);
-  const [liked, setLiked] = useState<string[]>([]);
   const [migrationIssues, setMigrationIssues] = useState<IngredientMigrationIssue[]>([]);
   const [legacyStockBackup, setLegacyStockBackup] = useState<string[]>([]);
   const [storageReady, setStorageReady] = useState(false);
@@ -45,28 +46,22 @@ export default function StockPage() {
   );
   const registry = useMemo(() => buildIngredientRegistry(recipeNames, ingredients), [recipeNames, ingredients]);
 
-  function persistInventory(nextStockIds: string[], nextIngredients: ManagedIngredient[]) {
+  async function persistInventory(nextStockIds: string[], nextIngredients: ManagedIngredient[]) {
     if (!storageReady || storageBlocked) return false;
-    const nextRegistry = buildIngredientRegistry(recipeNames, nextIngredients);
-    const nextState = reconcileIngredientMigration({
+    const result = await commitBusinessState((state) => ({
+      ...state,
       stockIds: nextStockIds,
       ingredients: nextIngredients,
-      liked,
-      customRecipes,
-      migrationIssues,
-      legacyStockBackup,
-    }, nextRegistry);
-    try {
-      saveAppStorage(nextState);
-    } catch {
+    }));
+    if (!result.ok) {
       setStorageBlocked(true);
       setError(t.notice.readError);
       return false;
     }
-    setIngredients(nextState.ingredients);
-    setStockIds(nextState.stockIds);
-    setMigrationIssues(nextState.migrationIssues);
-    setLegacyStockBackup(nextState.legacyStockBackup);
+    setIngredients(result.state.ingredients);
+    setStockIds(result.state.stockIds);
+    setMigrationIssues(result.state.migrationIssues);
+    setLegacyStockBackup(result.state.legacyStockBackup);
     setError('');
     return true;
   }
@@ -81,18 +76,51 @@ export default function StockPage() {
     setIngredients(loaded.state.ingredients);
     setCustomRecipes(loaded.state.customRecipes);
     setStockIds(loaded.state.stockIds);
-    setLiked(loaded.state.liked);
     setMigrationIssues(loaded.state.migrationIssues);
     setLegacyStockBackup(loaded.state.legacyStockBackup);
     if (loaded.needsPersist) {
-      try {
-        saveAppStorage(loaded.state);
-      } catch {
-        setStorageBlocked(true);
-      }
+      void commitBusinessState(() => loaded.state).then((result) => {
+        if (!result.ok) setStorageBlocked(true);
+      });
     }
     setStorageReady(true);
   }, []);
+
+  const syncFromStorage = useCallback(() => {
+    const loaded = loadAppStorage();
+    if (!loaded.ok) {
+      setStorageBlocked(true);
+      return;
+    }
+    setStorageBlocked(false);
+    setIngredients((current) =>
+      JSON.stringify(current) === JSON.stringify(loaded.state.ingredients)
+        ? current
+        : loaded.state.ingredients,
+    );
+    setStockIds((current) =>
+      JSON.stringify(current) === JSON.stringify(loaded.state.stockIds)
+        ? current
+        : loaded.state.stockIds,
+    );
+    setCustomRecipes((current) =>
+      JSON.stringify(current) === JSON.stringify(loaded.state.customRecipes)
+        ? current
+        : loaded.state.customRecipes,
+    );
+    setMigrationIssues((current) =>
+      JSON.stringify(current) === JSON.stringify(loaded.state.migrationIssues)
+        ? current
+        : loaded.state.migrationIssues,
+    );
+    setLegacyStockBackup((current) =>
+      JSON.stringify(current) === JSON.stringify(loaded.state.legacyStockBackup)
+        ? current
+        : loaded.state.legacyStockBackup,
+    );
+  }, []);
+
+  useBusinessStorageSync(syncFromStorage);
 
   const totalCount = registry.filter((item) => !item.archived && !item.deleted && isTrackedIngredient(item.nameEn, registry)).length;
   const activeStockCount = stockIds.filter((id) => registry.some((item) => item.id === id && !item.archived && !item.deleted && isTrackedIngredient(item.nameEn, registry))).length;
@@ -108,7 +136,7 @@ export default function StockPage() {
   }), [activeItems, normalizedQuery]);
   const filteredArchived = archivedItems.filter(matches);
 
-  function saveIngredient(event: FormEvent<HTMLFormElement>) {
+  async function saveIngredient(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editor) return;
     const nameEn = editor.form.nameEn.trim();
@@ -143,23 +171,23 @@ export default function StockPage() {
     const nextStockIds = isTrackedIngredient(nextIngredient.nameEn, nextIngredients)
       ? stockIds
       : stockIds.filter((id) => id !== nextIngredient.id);
-    if (persistInventory(nextStockIds, nextIngredients)) setEditor(null);
+    if (await persistInventory(nextStockIds, nextIngredients)) setEditor(null);
   }
 
   function toggleStock(id: string) {
     const next = stockIds.includes(id) ? stockIds.filter((value) => value !== id) : [...stockIds, id];
-    persistInventory(next, registry);
+    void persistInventory(next, registry);
   }
 
   function archiveIngredient(item: ManagedIngredient) {
     const nextIngredients = registry.map((entry) => entry.id === item.id ? { ...entry, archived: true } : entry);
     const nextStockIds = stockIds.filter((id) => id !== item.id);
-    persistInventory(nextStockIds, nextIngredients);
+    void persistInventory(nextStockIds, nextIngredients);
   }
 
   function restoreIngredient(item: ManagedIngredient) {
     const nextIngredients = registry.map((entry) => entry.id === item.id ? { ...entry, archived: false } : entry);
-    persistInventory(stockIds, nextIngredients);
+    void persistInventory(stockIds, nextIngredients);
   }
 
   function recipesUsingIngredient(item: ManagedIngredient) {
@@ -168,13 +196,13 @@ export default function StockPage() {
     ).length;
   }
 
-  function confirmDeleteIngredient() {
+  async function confirmDeleteIngredient() {
     if (!pendingDelete) return;
     const nextIngredients = registry.map((entry) => entry.id === pendingDelete.id
       ? { ...entry, archived: false, deleted: true }
       : entry);
     const nextStockIds = stockIds.filter((id) => id !== pendingDelete.id);
-    if (persistInventory(nextStockIds, nextIngredients)) setPendingDelete(null);
+    if (await persistInventory(nextStockIds, nextIngredients)) setPendingDelete(null);
   }
 
   function openEditor(item?: ManagedIngredient) {

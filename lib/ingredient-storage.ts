@@ -6,6 +6,7 @@ import {
   isTrackedIngredient,
   type ManagedIngredient,
 } from './ingredient-registry';
+import { maxOperationReceipts, type OperationReceipt } from './ai/contracts';
 
 export type IngredientMigrationIssue = {
   id: string;
@@ -22,6 +23,8 @@ export type AppStorageState = {
   customRecipes: Cocktail[];
   migrationIssues: IngredientMigrationIssue[];
   legacyStockBackup: string[];
+  /** Idempotency receipts for confirmed AI operations; absent in older data. */
+  aiOperationReceipts?: OperationReceipt[];
 };
 
 export type AppStorageLoadResult =
@@ -81,6 +84,32 @@ function isMigrationIssue(value: unknown): value is IngredientMigrationIssue {
     && value.candidates.every((candidate) => typeof candidate === 'string');
 }
 
+function parseOperationReceipts(value: unknown): OperationReceipt[] {
+  if (!Array.isArray(value)) return [];
+  const receipts: OperationReceipt[] = [];
+  for (const entry of value) {
+    if (!isSavedObject(entry)) continue;
+    if (
+      typeof entry.operationId !== 'string' ||
+      typeof entry.payloadHash !== 'string' ||
+      typeof entry.kind !== 'string' ||
+      typeof entry.targetId !== 'string' ||
+      typeof entry.committedAt !== 'string' ||
+      typeof entry.resultingFingerprint !== 'string'
+    ) continue;
+    receipts.push({
+      operationId: entry.operationId,
+      payloadHash: entry.payloadHash,
+      kind: entry.kind as OperationReceipt['kind'],
+      targetId: entry.targetId,
+      committedAt: entry.committedAt,
+      resultingFingerprint: entry.resultingFingerprint,
+    });
+    if (receipts.length >= maxOperationReceipts) break;
+  }
+  return receipts;
+}
+
 function stateFromSavedObject(saved: SavedObject): { state: AppStorageState; changed: boolean } {
   const ingredients = Array.isArray(saved.ingredients) ? saved.ingredients as ManagedIngredient[] : [];
   const customRecipes = Array.isArray(saved.customRecipes) ? saved.customRecipes as Cocktail[] : [];
@@ -131,6 +160,9 @@ function stateFromSavedObject(saved: SavedObject): { state: AppStorageState; cha
     customRecipes,
     migrationIssues: [...issues.values()],
     legacyStockBackup,
+    ...(Array.isArray(saved.aiOperationReceipts)
+      ? { aiOperationReceipts: parseOperationReceipts(saved.aiOperationReceipts) }
+      : {}),
   };
 
   const reconciled = reconcileIngredientMigration(state, registry);
@@ -247,6 +279,10 @@ export function saveAppStorage(state: AppStorageState) {
 
   if (state.legacyStockBackup.length > 0) next.legacyStockBackup = state.legacyStockBackup;
   else delete next.legacyStockBackup;
+
+  if (state.aiOperationReceipts && state.aiOperationReceipts.length > 0) {
+    next.aiOperationReceipts = state.aiOperationReceipts.slice(-maxOperationReceipts);
+  } else delete next.aiOperationReceipts;
 
   localStorage.setItem(storageKey, JSON.stringify(next));
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(appStorageChangeEvent));

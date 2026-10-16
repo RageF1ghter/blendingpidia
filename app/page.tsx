@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowUpRight,
+  Bot,
   Dices,
   Heart,
   NotebookPen,
@@ -18,11 +19,14 @@ import {
 } from 'lucide-react';
 import { CocktailCards } from '@/components/cocktail-cards';
 import { CocktailSidebar } from '@/components/cocktail-sidebar';
+import { AssistantSidebar } from '@/components/ai/assistant-sidebar';
 import {
   buildCocktailIndex,
   calculateAvailability,
 } from '@/lib/cocktail-index';
 import { useCocktailDetails } from '@/hooks/use-cocktail-details';
+import { useBusinessStorageSync } from '@/hooks/use-app-storage';
+import { commitBusinessState } from '@/lib/app-storage-repository';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -64,10 +68,7 @@ import {
   type Method,
 } from '@/lib/data';
 import {
-  appStorageChangeEvent,
   loadAppStorage,
-  reconcileIngredientMigration,
-  saveAppStorage,
 } from '@/lib/ingredient-storage';
 import type { IngredientMigrationIssue } from '@/lib/ingredient-storage';
 import {
@@ -99,7 +100,6 @@ export default function Home() {
   const [migrationIssues, setMigrationIssues] = useState<
     IngredientMigrationIssue[]
   >([]);
-  const [legacyStockBackup, setLegacyStockBackup] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [storageBlocked, setStorageBlocked] = useState(false);
   const [featuredId, setFeaturedId] = useState('negroni');
@@ -124,6 +124,7 @@ export default function Home() {
   const [notice, setNotice] = useState('');
   const [sort, setSort] = useState<'popular' | 'name' | 'newest'>('popular');
   const [page, setPage] = useState({ key: '', count: 24 });
+  const [aiOpen, setAiOpen] = useState(false);
 
   const cocktails = useMemo(
     () => [...baseCocktails, ...customRecipes],
@@ -158,13 +159,23 @@ export default function Home() {
       if (!loaded.ok) {
         setStorageBlocked(true);
       } else {
+        const sanitized = sanitizeCustomRecipes(loaded.state.customRecipes);
         setManagedIngredients(loaded.state.ingredients);
         setStockIds(loaded.state.stockIds);
         setLiked(loaded.state.liked);
-        setCustomRecipes(sanitizeCustomRecipes(loaded.state.customRecipes));
+        setCustomRecipes(sanitized);
         setMigrationIssues(loaded.state.migrationIssues);
-        setLegacyStockBackup(loaded.state.legacyStockBackup);
-        if (loaded.needsPersist) saveAppStorage(loaded.state);
+        const sanitizedChanged =
+          JSON.stringify(sanitized) !==
+          JSON.stringify(loaded.state.customRecipes);
+        if (loaded.needsPersist || sanitizedChanged) {
+          void commitBusinessState(() => ({
+            ...loaded.state,
+            customRecipes: sanitized,
+          })).then((result) => {
+            if (!result.ok) setStorageBlocked(true);
+          });
+        }
       }
     } catch {
       setStorageBlocked(true);
@@ -173,92 +184,51 @@ export default function Home() {
     }
   }, []);
 
-  useEffect(() => {
-    const syncFromStorage = () => {
-      const loaded = loadAppStorage();
-      if (!loaded.ok) {
-        setStorageBlocked(true);
-        return;
-      }
-      setStorageBlocked(false);
-      setStockIds((current) =>
-        JSON.stringify(current) === JSON.stringify(loaded.state.stockIds)
-          ? current
-          : loaded.state.stockIds,
-      );
-      setManagedIngredients((current) =>
-        JSON.stringify(current) === JSON.stringify(loaded.state.ingredients)
-          ? current
-          : loaded.state.ingredients,
-      );
-      setLiked((current) =>
-        JSON.stringify(current) === JSON.stringify(loaded.state.liked)
-          ? current
-          : loaded.state.liked,
-      );
-      setCustomRecipes((current) => {
-        const loadedRecipes = sanitizeCustomRecipes(
-          loaded.state.customRecipes,
-        );
-        return JSON.stringify(current) === JSON.stringify(loadedRecipes)
-          ? current
-          : loadedRecipes;
-      });
-      setMigrationIssues((current) =>
-        JSON.stringify(current) === JSON.stringify(loaded.state.migrationIssues)
-          ? current
-          : loaded.state.migrationIssues,
-      );
-      setLegacyStockBackup((current) =>
-        JSON.stringify(current) ===
-        JSON.stringify(loaded.state.legacyStockBackup)
-          ? current
-          : loaded.state.legacyStockBackup,
-      );
-    };
-    window.addEventListener(appStorageChangeEvent, syncFromStorage);
-    return () =>
-      window.removeEventListener(appStorageChangeEvent, syncFromStorage);
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated || storageBlocked) return;
-    const currentState = {
-      stockIds,
-      ingredients: managedIngredients,
-      liked,
-      customRecipes,
-      migrationIssues,
-      legacyStockBackup,
-    };
-    const reconciled = reconcileIngredientMigration(
-      currentState,
-      ingredientRegistry,
-    );
-    if (JSON.stringify(reconciled) !== JSON.stringify(currentState)) {
-      setStockIds(reconciled.stockIds);
-      setMigrationIssues(reconciled.migrationIssues);
-      setLegacyStockBackup(reconciled.legacyStockBackup);
-      return;
-    }
-    try {
-      saveAppStorage(reconciled);
-    } catch {
+  const reportCommitFailure = useCallback((result: { ok: boolean }) => {
+    if (!result.ok) {
       setStorageBlocked(true);
       setNotice(t.notice.readError);
     }
-  }, [
-    customRecipes,
-    hydrated,
-    ingredientRegistry,
-    legacyStockBackup,
-    liked,
-    managedIngredients,
-    migrationIssues,
-    stockIds,
-    storageBlocked,
-    t.notice.readError,
-  ]);
+  }, [t.notice.readError]);
+
+  const syncFromStorage = useCallback(() => {
+    const loaded = loadAppStorage();
+    if (!loaded.ok) {
+      setStorageBlocked(true);
+      return;
+    }
+    setStorageBlocked(false);
+    setStockIds((current) =>
+      JSON.stringify(current) === JSON.stringify(loaded.state.stockIds)
+        ? current
+        : loaded.state.stockIds,
+    );
+    setManagedIngredients((current) =>
+      JSON.stringify(current) === JSON.stringify(loaded.state.ingredients)
+        ? current
+        : loaded.state.ingredients,
+    );
+    setLiked((current) =>
+      JSON.stringify(current) === JSON.stringify(loaded.state.liked)
+        ? current
+        : loaded.state.liked,
+    );
+    setCustomRecipes((current) => {
+      const loadedRecipes = sanitizeCustomRecipes(
+        loaded.state.customRecipes,
+      );
+      return JSON.stringify(current) === JSON.stringify(loadedRecipes)
+        ? current
+        : loadedRecipes;
+    });
+    setMigrationIssues((current) =>
+      JSON.stringify(current) === JSON.stringify(loaded.state.migrationIssues)
+        ? current
+        : loaded.state.migrationIssues,
+    );
+  }, []);
+
+  useBusinessStorageSync(syncFromStorage);
 
   const featured = cocktailIndex.byId.get(featuredId)?.recipe ?? cocktails[0];
   const allIngredients = useMemo(() => {
@@ -358,13 +328,14 @@ export default function Home() {
   const toggleLike = useCallback(
     (id: string) => {
       if (!hydrated || storageBlocked) return;
-      setLiked((current) =>
-        current.includes(id)
-          ? current.filter((item) => item !== id)
-          : [...current, id],
-      );
+      void commitBusinessState((state) => ({
+        ...state,
+        liked: state.liked.includes(id)
+          ? state.liked.filter((item) => item !== id)
+          : [...state.liked, id],
+      })).then(reportCommitFailure);
     },
-    [hydrated, storageBlocked],
+    [hydrated, storageBlocked, reportCommitFailure],
   );
 
   const openDetail = useCallback((id: string) => {
@@ -439,8 +410,9 @@ export default function Home() {
     );
     const parentId = formParentId || null;
     if (editingId) {
-      setCustomRecipes((current) =>
-        updateCustomRecipe(current, editingId, {
+      void commitBusinessState((state) => ({
+        ...state,
+        customRecipes: updateCustomRecipe(state.customRecipes, editingId, {
           name,
           image: formImage.trim() || undefined,
           method: formMethod,
@@ -450,7 +422,7 @@ export default function Home() {
           instructions: formInstructions.trim(),
           parentId,
         }),
-      );
+      })).then(reportCommitFailure);
       setFeaturedId(editingId);
       setShowRecipeForm(false);
       setNotice(t.notice.updated.replace('{name}', name));
@@ -470,7 +442,10 @@ export default function Home() {
       parentId,
       isCustom: true,
     };
-    setCustomRecipes((current) => [recipe, ...current]);
+    void commitBusinessState((state) => ({
+      ...state,
+      customRecipes: [recipe, ...state.customRecipes],
+    })).then(reportCommitFailure);
     setFeaturedId(recipe.id);
     setShowRecipeForm(false);
     setNotice(
@@ -483,13 +458,14 @@ export default function Home() {
   function confirmDeleteRecipe() {
     if (!deletingRecipe || !hydrated || storageBlocked) return;
     const target = deletingRecipe;
-    const { recipes } = deleteCustomRecipe(customRecipes, target.id);
-    setCustomRecipes(recipes);
-    setLiked((current) =>
-      current.includes(target.id)
-        ? current.filter((item) => item !== target.id)
-        : current,
-    );
+    void commitBusinessState((state) => {
+      const { recipes } = deleteCustomRecipe(state.customRecipes, target.id);
+      return {
+        ...state,
+        customRecipes: recipes,
+        liked: state.liked.filter((id) => id !== target.id),
+      };
+    }).then(reportCommitFailure);
     if (featuredId === target.id) setFeaturedId('negroni');
     if (detailId === target.id) setDetailId(null);
     setDeletingRecipe(null);
@@ -578,6 +554,15 @@ export default function Home() {
             )}
           </label>
           <LanguageToggle lang={lang} onChange={setLang} />
+          <Button
+            aria-label={t.ai.open}
+            className="bg-transparent text-[#d2d4cc] hover:bg-[#c88955]/12 hover:text-[#e8c197]"
+            onClick={() => setAiOpen(true)}
+            size="icon"
+            variant="ghost"
+          >
+            <Bot />
+          </Button>
           <Button
             className="hidden bg-transparent text-[#d2d4cc] hover:bg-white/6 hover:text-[#f3ebdd] md:inline-flex"
             onClick={chooseRandom}
@@ -1337,7 +1322,7 @@ export default function Home() {
             )}
           <div className="flex justify-end gap-2 pt-2">
             <Button
-              className="text-[#c5c8c1]"
+              className="text-[#c5c5c1]"
               onClick={() => setDeletingRecipe(null)}
               type="button"
               variant="ghost"
@@ -1354,6 +1339,14 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
+      <AssistantSidebar
+        lang={lang}
+        onClose={() => setAiOpen(false)}
+        open={aiOpen}
+        resolveRecipeName={(recipeId) =>
+          cocktailIndex.byId.get(recipeId)?.recipe.name
+        }
+      />
     </main>
   );
 }

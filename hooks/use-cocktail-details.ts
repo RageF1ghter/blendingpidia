@@ -2,30 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import type { Cocktail } from '@/lib/data';
-
-type Details = Pick<Cocktail, 'measures' | 'instructions'>;
-const requests = new Map<string, Promise<Details>>();
-
-function loadDetails(id: string) {
-  const cached = requests.get(id);
-  if (cached) return cached;
-  const request = fetch(`/api/cocktails/${encodeURIComponent(id)}`)
-    .then(async (response) => {
-      if (!response.ok) throw new Error('Could not load recipe');
-      return (await response.json()) as Details;
-    })
-    .catch((error: unknown) => {
-      requests.delete(id);
-      throw error;
-    });
-  requests.set(id, request);
-  return request;
-}
+import { loadCocktailDetails, type CocktailDetails } from '@/lib/cocktail-details';
 
 export function useCocktailDetails(recipe: Cocktail | null) {
   const [loaded, setLoaded] = useState<{
     id: string;
-    details?: Details;
+    details?: CocktailDetails;
     failed?: boolean;
   } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -34,7 +16,7 @@ export function useCocktailDetails(recipe: Cocktail | null) {
   useEffect(() => {
     if (!id || !needsDetails) return;
     let active = true;
-    loadDetails(id).then(
+    loadCocktailDetails(id).then(
       (details) => {
         if (active) setLoaded({ id, details });
       },
