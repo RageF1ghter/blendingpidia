@@ -164,6 +164,7 @@ const zh = {
   ai: {
     open: 'AI 助手',
     close: '关闭',
+    resize: '拖动调整宽度',
     title: 'AI 调酒助手',
     subtitle: '读取我的酒柜与酒谱，确认后修改本地数据',
     placeholder: '问问现在能做什么酒、解释配方、替代原料，或创作新配方…',
@@ -417,6 +418,7 @@ const en: typeof zh = {
   ai: {
     open: 'AI assistant',
     close: 'Close',
+    resize: 'Drag to resize width',
     title: 'AI Bartender',
     subtitle: 'Reads your stock and recipes; changes apply only after you confirm',
     placeholder: 'Ask what you can make, explain a recipe, suggest substitutes, or create one…',

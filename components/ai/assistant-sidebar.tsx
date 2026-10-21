@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ComponentPropsWithoutRef } from 'react';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   AlertTriangle,
   Bot,
@@ -24,6 +27,32 @@ type SidebarProps = {
   resolveRecipeName: (recipeId: string) => string | undefined;
 };
 
+const sidebarWidthStorageKey = 'blendingpidia-ai-sidebar-width';
+const defaultSidebarWidth = 430;
+const minSidebarWidth = 320;
+const maxSidebarWidth = 720;
+
+function clampSidebarWidth(candidate: number) {
+  const viewportCap = Math.min(maxSidebarWidth, window.innerWidth * 0.9);
+  return Math.max(minSidebarWidth, Math.min(candidate, viewportCap));
+}
+
+const assistantMarkdownClass =
+  'text-sm leading-6 [&_a]:no-underline [&_blockquote]:my-1.5 [&_blockquote]:border-l-2 [&_blockquote]:border-white/15 [&_blockquote]:pl-3 [&_blockquote]:text-[#c9cec9] [&_code]:rounded [&_code]:bg-black/30 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_em]:italic [&_h1]:mb-1 [&_h1]:mt-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-2 [&_h2]:font-semibold [&_h3]:mb-1 [&_h3]:mt-1.5 [&_h3]:font-medium [&_h4]:mb-1 [&_h4]:mt-1.5 [&_h4]:font-medium [&_hr]:my-3 [&_hr]:border-white/10 [&_li]:my-0.5 [&_li>p]:m-0 [&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:m-0 [&_p]:whitespace-pre-wrap [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-black/30 [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-xs [&_strong]:font-semibold [&_strong]:text-[#f6e7d2] [&_table]:my-2 [&_table]:w-full [&_table]:text-xs [&_td]:border [&_td]:border-white/10 [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-white/10 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5';
+
+function AssistantLink({ href, children }: ComponentPropsWithoutRef<'a'>) {
+  // Only app-verified recipe references become pills; model-fed external
+  // links render as inert text and never navigate (design rule).
+  if (typeof href === 'string' && /^recipe:[A-Za-z0-9_.-]+$/.test(href)) {
+    return (
+      <span className="mx-0.5 inline-flex items-center rounded-full border border-[#c88955]/40 bg-[#c88955]/10 px-2 py-0.5 text-xs text-[#f1d4af]">
+        {children}
+      </span>
+    );
+  }
+  return <span className="text-[#c9cec9] underline decoration-white/25">{children}</span>;
+}
+
 function AssistantText({
   text,
   resolveRecipeName,
@@ -31,24 +60,27 @@ function AssistantText({
   text: string;
   resolveRecipeName: (recipeId: string) => string | undefined;
 }) {
-  const parts = useMemo(() => text.split(/(recipe:[A-Za-z0-9_.-]+)/g), [text]);
+  const normalized = useMemo(
+    () =>
+      text.replace(/recipe:([A-Za-z0-9_.-]+)/g, (whole, recipeId: string) => {
+        const name = resolveRecipeName(recipeId);
+        return name ? `[${name.replace(/[[\]]/g, '')}](recipe:${recipeId})` : whole;
+      }),
+    [text, resolveRecipeName],
+  );
   return (
-    <p className="whitespace-pre-wrap text-sm leading-6">
-      {parts.map((part, index) => {
-        const match = /^recipe:([A-Za-z0-9_.-]+)$/.exec(part);
-        if (!match) return <span key={index}>{part}</span>;
-        const name = resolveRecipeName(match[1]);
-        if (!name) return null;
-        return (
-          <span
-            className="mx-0.5 inline-flex items-center rounded-full border border-[#c88955]/40 bg-[#c88955]/10 px-2 py-0.5 text-xs text-[#f1d4af]"
-            key={index}
-          >
-            {name}
-          </span>
-        );
-      })}
-    </p>
+    <div className={assistantMarkdownClass}>
+      {/* Custom schemes (recipe:) survive url sanitizing; AssistantLink is the
+          single gate that decides what renders as a pill and nothing renders
+          as a navigable link. */}
+      <Markdown
+        components={{ a: AssistantLink }}
+        remarkPlugins={[remarkGfm]}
+        urlTransform={(url) => url}
+      >
+        {normalized}
+      </Markdown>
+    </div>
   );
 }
 
@@ -58,12 +90,61 @@ export function AssistantSidebar({ lang, open, onClose, resolveRecipeName }: Sid
   const [input, setInput] = useState('');
   // Null keeps the derived default: settings expand while no key is set.
   const [settingsOverride, setSettingsOverride] = useState<boolean | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth);
+  const widthRef = useRef(defaultSidebarWidth);
+  const dragPointerRef = useRef<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(sidebarWidthStorageKey);
+      if (raw === null) return;
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) {
+        const clamped = clampSidebarWidth(parsed);
+        widthRef.current = clamped;
+        setSidebarWidth(clamped);
+      }
+    } catch {
+      // storage unavailable: keep the default width
+    }
+  }, []);
+
+  const applyDraggedWidth = (candidate: number) => {
+    const clamped = clampSidebarWidth(candidate);
+    widthRef.current = clamped;
+    setSidebarWidth(clamped);
+  };
+
+  const endResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragPointerRef.current !== event.pointerId) return;
+    dragPointerRef.current = null;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // capture already released
+    }
+    try {
+      localStorage.setItem(sidebarWidthStorageKey, String(widthRef.current));
+    } catch {
+      // persistence best-effort; width still applies for this session
+    }
+  };
 
   useEffect(() => {
     const container = listRef.current;
     if (container) container.scrollTop = container.scrollHeight;
   }, [assistant.messages, assistant.draft, assistant.proposals, open]);
+
+  // Publish the live width so the page content can reflow alongside the
+  // sidebar (push layout) instead of being covered by it.
+  useEffect(() => {
+    if (!open) return;
+    document.documentElement.style.setProperty('--ai-sidebar-w', `${sidebarWidth}px`);
+    return () => {
+      document.documentElement.style.removeProperty('--ai-sidebar-w');
+    };
+  }, [open, sidebarWidth]);
 
   const showSettings =
     settingsOverride ??
@@ -85,13 +166,35 @@ export function AssistantSidebar({ lang, open, onClose, resolveRecipeName }: Sid
 
   return (
     <>
+      {/* Mobile keeps the dismiss overlay; on desktop the sidebar pushes the
+          page instead of covering it, so the content stays interactive. */}
       <button
         aria-label={t.open}
-        className="fixed inset-0 z-40 cursor-default bg-black/50 md:bg-black/30"
+        className="fixed inset-0 z-40 cursor-default bg-black/50 md:hidden"
         onClick={onClose}
         type="button"
       />
-      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-[430px] flex-col border-l border-white/10 bg-[#15181a] text-[#f3ebdd] shadow-2xl">
+      <aside
+        className="fixed right-0 top-0 z-50 flex h-full w-full max-w-[430px] flex-col border-l border-white/10 bg-[#15181a] text-[#f3ebdd] shadow-2xl max-md:w-full! max-md:max-w-full!"
+        style={{ width: sidebarWidth, maxWidth: 'min(90vw, 720px)' }}
+      >
+        <div
+          aria-label={t.resize}
+          aria-orientation="vertical"
+          className="absolute left-0 top-0 z-10 hidden h-full w-1.5 cursor-col-resize touch-none transition-colors hover:bg-[#c88955]/50 md:block"
+          onPointerCancel={endResize}
+          onPointerDown={(event) => {
+            dragPointerRef.current = event.pointerId;
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            if (dragPointerRef.current !== event.pointerId) return;
+            event.preventDefault();
+            applyDraggedWidth(window.innerWidth - event.clientX);
+          }}
+          onPointerUp={endResize}
+          role="separator"
+        />
         <header className="flex items-center gap-2 border-b border-white/8 px-4 py-3">
           <span className="grid h-8 w-8 place-items-center rounded-full border border-[#c88955]/55 bg-[#c88955]/10 text-[#e8c197]">
             <Bot className="h-4 w-4" />

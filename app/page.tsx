@@ -517,7 +517,7 @@ export default function Home() {
     : '';
 
   return (
-    <main className="min-h-screen bg-[#0e1011] text-[#f3ebdd]">
+    <main className="min-h-screen bg-[#0e1011] pr-0 text-[#f3ebdd] md:pr-[var(--ai-sidebar-w,0px)]">
       <header className="sticky top-0 z-30 border-b border-white/8 bg-[#0e1011]/90 backdrop-blur-xl">
         <div className="mx-auto flex h-[76px] max-w-[1540px] items-center gap-3 px-4 lg:px-9">
           <a className="group flex shrink-0 items-center gap-3" href="#top">

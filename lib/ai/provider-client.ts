@@ -134,8 +134,10 @@ export function failureEvent(failure: UpstreamFailure, requestId: string): AppSt
 
 /**
  * Translates an upstream SSE body into the application SSE stream.
- * Tool-call arguments are aggregated by index across deltas and only
- * emitted when the upstream finished normally with JSON that parses.
+ * Text deltas are forwarded as they arrive so the browser can render
+ * progressively. Tool-call arguments are aggregated by index across
+ * deltas and only emitted when the upstream finished normally with
+ * JSON that parses.
  */
 export function translateUpstreamStream(
   upstream: ReadableStream<Uint8Array>,
@@ -144,7 +146,6 @@ export function translateUpstreamStream(
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = '';
-  let pendingText = '';
   let finishReason: 'stop' | 'tool_calls' | 'length' | 'aborted' | null = null;
   let sawDone = false;
   let usage: { promptTokens?: number; completionTokens?: number } | undefined;
@@ -167,7 +168,7 @@ export function translateUpstreamStream(
           while (newlineIndex !== -1) {
             const line = buffer.slice(0, newlineIndex).replace(/\r$/, '');
             buffer = buffer.slice(newlineIndex + 1);
-            consumeLine(line);
+            consumeLine(controller, line);
             newlineIndex = buffer.indexOf('\n');
           }
           if (sawDone) break;
@@ -187,7 +188,7 @@ export function translateUpstreamStream(
     },
   });
 
-  function consumeLine(line: string) {
+  function consumeLine(controller: ReadableStreamDefaultController<Uint8Array>, line: string) {
     if (!line.startsWith('data:')) return;
     const payload = line.slice(5).trim();
     if (!payload) return;
@@ -210,7 +211,7 @@ export function translateUpstreamStream(
     const choice = chunk.choices?.[0];
     if (!choice) return;
     const delta = choice.delta;
-    if (delta?.content) pendingText += delta.content;
+    if (delta?.content) emit(controller, { type: 'text_delta', text: delta.content });
     if (delta?.tool_calls) {
       for (const fragment of delta.tool_calls) {
         const index = fragment.index ?? 0;
@@ -227,10 +228,6 @@ export function translateUpstreamStream(
   }
 
   function finalize(controller: ReadableStreamDefaultController<Uint8Array>, failed?: boolean) {
-    if (pendingText) {
-      emit(controller, { type: 'text_delta', text: pendingText });
-      pendingText = '';
-    }
     if (failed) {
       emit(controller, {
         type: 'error',
